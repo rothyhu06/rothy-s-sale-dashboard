@@ -12,11 +12,11 @@ const options: Array<{ value: ThemePreference; label: string }> = [
 export function ThemeToggle() {
   const { preference, setPreference } = useTheme();
   return (
-    <div aria-label="Theme" className="inline-flex rounded-[var(--radius-control)] border border-border bg-paper p-1" role="group">
+    <div aria-label="Theme" className="radius-control inline-flex border border-border bg-paper p-1" role="group">
       {options.map((option) => (
         <button
           aria-pressed={preference === option.value}
-          className="type-control min-h-9 rounded-[var(--radius-control)] px-3 text-muted transition-colors aria-pressed:bg-ink aria-pressed:text-paper"
+          className="theme-option radius-control type-control min-h-9 px-3 text-muted transition-colors"
           key={option.value}
           onClick={() => setPreference(option.value)}
           type="button"

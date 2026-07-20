@@ -46,6 +46,7 @@ describe("ThemeProvider", () => {
       </ThemeProvider>,
     );
     act(() => {
+      localStorage.setItem("csig-theme-preference", "night");
       window.dispatchEvent(
         new StorageEvent("storage", {
           key: "csig-theme-preference",

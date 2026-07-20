@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   millisecondsUntilThemeBoundary,
@@ -24,9 +25,27 @@ export type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+const THEME_CHANGE_EVENT = "csig-theme-preference-change";
 
 function isThemePreference(value: string | null): value is ThemePreference {
   return value === "auto" || value === "day" || value === "night";
+}
+
+function getThemeSnapshot(): ThemePreference {
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return isThemePreference(stored) ? stored : "auto";
+}
+
+function subscribeThemePreference(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === THEME_STORAGE_KEY) onStoreChange();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  };
 }
 
 export function ThemeProvider({
@@ -36,11 +55,7 @@ export function ThemeProvider({
   children: ReactNode;
   now?: () => Date;
 }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>(() => {
-    if (typeof window === "undefined") return "auto";
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(stored) ? stored : "auto";
-  });
+  const preference = useSyncExternalStore<ThemePreference>(subscribeThemePreference, getThemeSnapshot, () => "auto");
   const [currentTime, setCurrentTime] = useState(now);
   const resolvedTheme = resolveTheme(preference, currentTime.getHours());
 
@@ -54,25 +69,14 @@ export function ThemeProvider({
     return () => window.clearTimeout(timeout);
   }, [currentTime, now, preference]);
 
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === THEME_STORAGE_KEY && isThemePreference(event.newValue)) {
-        setPreferenceState(event.newValue);
-        setCurrentTime(now());
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [now]);
-
   const value = useMemo<ThemeContextValue>(
     () => ({
       preference,
       resolvedTheme,
       setPreference(nextPreference) {
         window.localStorage.setItem(THEME_STORAGE_KEY, nextPreference);
-        setPreferenceState(nextPreference);
         setCurrentTime(now());
+        window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
       },
     }),
     [now, preference, resolvedTheme],
