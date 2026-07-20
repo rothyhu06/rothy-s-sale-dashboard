@@ -2,7 +2,7 @@
 
 This directory contains the reusable Design System foundation for the private CSIG Sales OS workspace. It intentionally contains no production CRM, customer, opportunity, report, database, or AI workflow.
 
-**Online experience:** [https://rothy-s-sale-dashboard.vercel.app](https://rothy-s-sale-dashboard.vercel.app)
+**Online experience:** [https://rothy-s-sale-dashboard.vercel.app/design-system](https://rothy-s-sale-dashboard.vercel.app/design-system)
 
 ## Requirements
 

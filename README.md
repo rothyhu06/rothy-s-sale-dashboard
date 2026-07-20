@@ -4,7 +4,7 @@
 
 ## Online Experience
 
-### [Open CSIG Sales OS →](https://rothy-s-sale-dashboard.vercel.app)
+### [Open CSIG Sales OS →](https://rothy-s-sale-dashboard.vercel.app/design-system)
 
 The current release is the **Design System V2.0 interactive gallery**. It demonstrates the shared visual foundation for every future page, including:
 
@@ -50,4 +50,3 @@ pnpm verify
 ```
 
 The verification flow covers linting, TypeScript, component tests, production build, responsive behavior, accessibility, theme persistence, and reduced motion.
-
