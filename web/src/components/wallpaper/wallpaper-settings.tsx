@@ -69,11 +69,11 @@ export function WallpaperSettingsPanel({
         <p className="type-body-sm mt-2 text-muted">Keep the image quiet enough that work remains the foreground.</p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <label className="type-control inline-flex min-h-11 cursor-pointer items-center rounded-[var(--radius-control)] border border-border bg-paper px-4">
+        <label className="radius-control type-control inline-flex min-h-11 cursor-pointer items-center border border-border bg-paper px-4">
           Upload or replace
           <input accept="image/jpeg,image/png,image/webp" aria-label="Upload wallpaper" className="sr-only" onChange={onUpload} type="file" />
         </label>
-        <button className="type-control min-h-11 rounded-[var(--radius-control)] border border-border px-4" onClick={remove} type="button">Remove</button>
+        <button className="radius-control type-control min-h-11 border border-border px-4" onClick={remove} type="button">Remove</button>
       </div>
       <div className="grid gap-4">
         <RangeControl label="Visibility" max={25} min={0} onChange={(value) => saveSettings({ ...settings, opacity: value / 100 })} value={Math.round(settings.opacity * 100)} />

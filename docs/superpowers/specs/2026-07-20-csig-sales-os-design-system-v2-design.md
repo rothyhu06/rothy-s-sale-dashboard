@@ -63,12 +63,14 @@ AI 以编辑、陪练和上下文助手的方式出现。使用 Daily Brief、Ed
 | `color.canvas` | `#F7F4EE` | 页面底色，暖纸张感 |
 | `color.paper` | `#FBFAF7` | 可读内容面、输入与行动 Card |
 | `color.ink` | `#2D2D2D` | 主要文字与高强调按钮 |
-| `color.muted` | `#727272` | 辅助文字、时间和说明 |
+| `color.muted` | `#6B6B6B` | 辅助文字、时间和说明；由 AA 对比度验收从 `#727272` 微调 |
 | `color.border` | `#DDD8CF` | Divider、边框和输入轮廓 |
 | `color.accent` | `#7B93A7` | 当前重点、链接、AI 建议和焦点 |
 | `color.success` | `#7D9580` | 已完成、健康和正向反馈 |
 | `color.highlight` | `#B3945B` | 稀少的重点标记和珍贵记忆 |
 | `color.danger` | `#A46F68` | 删除、阻塞和错误 |
+
+Day Theme 的浅色 Accent 与 Danger 保留用于焦点、进度、边框和非文字强调。小尺寸文字分别使用 `color.accent-ink: #596F80` 与 `color.danger-ink: #8B5752`，避免牺牲 WCAG AA 对比度。
 
 Day Theme 禁止使用高饱和腾讯蓝、微软蓝或大面积金色。
 
@@ -85,6 +87,8 @@ Day Theme 禁止使用高饱和腾讯蓝、微软蓝或大面积金色。
 | `color.success` | `#819C8A` | 正向状态 |
 | `color.highlight` | `#D0B16F` | 稀少的记忆与重点标记 |
 | `color.danger` | `#C58A82` | 删除、阻塞和错误 |
+
+Night Theme 的小尺寸强调文字使用 `color.accent-ink: #B8B0E2` 与 `color.danger-ink: #D9A29B`。
 
 Night Theme 禁止纯黑、OLED 黑、霓虹紫、发光描边和科技感渐变。
 

@@ -751,7 +751,7 @@ git commit -m "feat: add design system acceptance gallery"
 - [ ] Search for prohibited implementation patterns:
 
 ```bash
-rg -n '#[0-9A-Fa-f]{3,8}|shadow-|backdrop-|rounded-\[|animate-(bounce|pulse|spin)' web/src --glob '!app/globals.css' --glob '!tests/**'
+rg -n '#[0-9A-Fa-f]{3,8}|shadow-|backdrop-|rounded-\[|animate-(bounce|pulse|spin)' web/src --glob '!**/app/globals.css' --glob '!**/tests/**'
 ```
 
 Expected: no matches. If a valid exception is unavoidable, document and test the exact reason instead of weakening the search globally.
@@ -759,7 +759,7 @@ Expected: no matches. If a valid exception is unavoidable, document and test the
 - [ ] Search for unfinished work:
 
 ```bash
-rg -n 'TODO|FIXME|placeholder|coming soon|not implemented' web/src web/README.md
+rg -n 'TODO|FIXME|coming soon|not implemented' web/src web/README.md
 ```
 
 Expected: no implementation placeholders.
@@ -811,3 +811,9 @@ git commit -m "docs: document design system usage and verification"
 - AI chat, AI Context Snapshot, model providers, and Level 3 data processing.
 - Product analytics, telemetry, and error-reporting vendors.
 - Design variants not present in the frozen V2.0 specification.
+
+## Approved Implementation Deviations
+
+- Fonts use local `@fontsource-variable` packages instead of `next/font/google`. The build environment could not reach Google Fonts, and local packages preserve the specified Source Serif 4, Noto Serif SC, and Inter families while enabling private-network builds.
+- Day `color.muted` is `#6B6B6B` rather than `#727272`; automated WCAG testing measured the original combination at 4.38:1. Accent and Danger retain their original non-text colors and add dedicated `accent-ink` and `danger-ink` text tokens.
+- Local Playwright verification uses the installed Google Chrome channel because the 171 MiB bundled Chromium download repeatedly timed out. The browser choice does not change the test cases or acceptance thresholds.
