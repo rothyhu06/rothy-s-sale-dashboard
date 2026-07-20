@@ -4,6 +4,7 @@ import "@fontsource-variable/noto-serif-sc";
 import "@fontsource-variable/source-serif-4";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
+import { WallpaperLayer } from "@/components/wallpaper/wallpaper-layer";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +23,10 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body className="flex min-h-full flex-col">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <WallpaperLayer />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
