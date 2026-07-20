@@ -180,6 +180,9 @@ a {
 .type-control { font-size: var(--type-control-size); font-weight: 500; line-height: var(--type-control-line); }
 .type-label { font-size: var(--type-label-size); font-weight: 500; letter-spacing: 0.13em; line-height: var(--type-label-line); text-transform: uppercase; }
 .type-metadata { font-size: var(--type-metadata-size); line-height: var(--type-metadata-line); }
+.radius-control { border-radius: var(--radius-control); }
+.radius-floating { border-radius: var(--radius-floating); }
+.radius-card { border-radius: var(--radius-card); }
 
 @media (prefers-reduced-motion: reduce) {
   *,
