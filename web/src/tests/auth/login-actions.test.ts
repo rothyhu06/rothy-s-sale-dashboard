@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createServerClient, signInWithAudit, signOutWithAudit } = vi.hoisted(() => ({
+const {
+  clearCurrentSupabaseSessionCookies,
+  createServerClient,
+  signInWithAudit,
+  signOutWithAudit,
+} = vi.hoisted(() => ({
+  clearCurrentSupabaseSessionCookies: vi.fn(),
   createServerClient: vi.fn(),
   signInWithAudit: vi.fn(),
   signOutWithAudit: vi.fn(),
@@ -8,6 +14,7 @@ const { createServerClient, signInWithAudit, signOutWithAudit } = vi.hoisted(() 
 
 vi.mock("@/lib/supabase/server", () => ({ createServerClient }));
 vi.mock("@/lib/auth/session-audit", () => ({ signInWithAudit, signOutWithAudit }));
+vi.mock("@/lib/auth/session-cookies", () => ({ clearCurrentSupabaseSessionCookies }));
 
 import { signIn, signOut } from "@/app/(public)/login/actions";
 
@@ -30,7 +37,10 @@ describe("login server actions", () => {
 
     expect(signInWithAudit).toHaveBeenCalledWith(
       { email: "owner@example.test", password: "NeverLogThisPassword!" },
-      { auth: client.auth },
+      {
+        auth: client.auth,
+        clearLocalSession: clearCurrentSupabaseSessionCookies,
+      },
     );
   });
 
@@ -43,6 +53,9 @@ describe("login server actions", () => {
       digest: expect.stringContaining("NEXT_REDIRECT"),
     });
 
-    expect(signOutWithAudit).toHaveBeenCalledWith({ auth: client.auth });
+    expect(signOutWithAudit).toHaveBeenCalledWith({
+      auth: client.auth,
+      clearLocalSession: clearCurrentSupabaseSessionCookies,
+    });
   });
 });

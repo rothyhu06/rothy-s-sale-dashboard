@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { signInWithAudit, signOutWithAudit } from "@/lib/auth/session-audit";
+import { clearCurrentSupabaseSessionCookies } from "@/lib/auth/session-cookies";
 import { createServerClient } from "@/lib/supabase/server";
 
 export async function signIn(formData: FormData) {
@@ -15,7 +16,10 @@ export async function signIn(formData: FormData) {
   const supabase = await createServerClient();
   const result = await signInWithAudit(
     { email, password },
-    { auth: supabase.auth },
+    {
+      auth: supabase.auth,
+      clearLocalSession: clearCurrentSupabaseSessionCookies,
+    },
   );
 
   if (!result.ok) {
@@ -27,6 +31,9 @@ export async function signIn(formData: FormData) {
 
 export async function signOut() {
   const supabase = await createServerClient();
-  await signOutWithAudit({ auth: supabase.auth });
+  await signOutWithAudit({
+    auth: supabase.auth,
+    clearLocalSession: clearCurrentSupabaseSessionCookies,
+  });
   redirect("/login");
 }

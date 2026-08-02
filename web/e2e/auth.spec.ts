@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
 import { requireLocalSupabaseUrl } from "./support/local-supabase";
+import { ensureDeterministicLocalUser } from "./support/local-test-user";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -25,8 +25,8 @@ test.describe("anonymous route boundary", () => {
 test.describe("authenticated login boundary", () => {
   test.describe.configure({ mode: "serial" });
 
-  const email = `auth-e2e-${randomUUID()}@example.test`;
-  const password = `Auth-e2e-${randomUUID()}!`;
+  const email = "auth-e2e-owner@example.test";
+  const password = "Local-auth-e2e-owner-only!";
   let localSupabaseUrl: URL | undefined;
   let userId: string;
 
@@ -38,18 +38,12 @@ test.describe("authenticated login boundary", () => {
     const admin = createClient(localSupabaseUrl.href, serviceRoleKey!, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
-    expect(error).toBeNull();
-    expect(data.user).not.toBeNull();
-    userId = data.user!.id;
+    const user = await ensureDeterministicLocalUser(admin.auth.admin, email, password);
+    userId = user.id;
   });
 
   test("redirects authenticated users and appends sanitized sign-in and sign-out audits", async ({ page }) => {
+    const auditWindowStart = new Date(Date.now() - 1_000).toISOString();
     await page.goto("/login");
     await page.getByLabel("邮箱").fill(email);
     await page.getByLabel("密码").fill(password);
@@ -72,6 +66,7 @@ test.describe("authenticated login boundary", () => {
       .select("action,entity_type,changed_fields,metadata,request_ip_hash,user_agent,error_code")
       .eq("owner_id", userId)
       .in("action", ["SignedIn", "SignedOut"])
+      .gte("occurred_at", auditWindowStart)
       .order("occurred_at", { ascending: true });
 
     expect(auditError).toBeNull();
