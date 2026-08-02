@@ -15,6 +15,10 @@
 /playwright-report
 /test-results
 
+# local Supabase runtime state
+/supabase/.branches/
+/supabase/.temp/
+
 # next.js
 /.next/
 /out/
