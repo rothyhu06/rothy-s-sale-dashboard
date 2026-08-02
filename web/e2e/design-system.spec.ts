@@ -4,10 +4,13 @@ import { expect, test } from "@playwright/test";
 test("renders the complete Design System gallery", async ({ page }) => {
   await page.goto("/design-system");
   await expect(page.getByRole("heading", { name: "CSIG Sales OS — Design System" })).toBeVisible();
-  for (const section of ["Foundations", "Controls", "Cards", "Memory Timeline", "Growth Progress", "Empty States"]) {
-    await expect(page.getByRole("heading", { name: section })).toBeVisible();
+  for (const section of ["Foundations", "Controls", "Cross-cutting Controls", "Cards", "Memory Timeline", "Growth Progress", "Empty States"]) {
+    await expect(page.getByRole("heading", { name: section, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("button", { name: "Ask Your Editor" })).toBeVisible();
+  await expect(page.getByText("Demo / Sample Data", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open command dialog" }).click();
+  await expect(page.getByRole("dialog", { name: "Search sample workspace" })).toBeVisible();
 });
 
 test("persists manual Day and Night themes", async ({ page }) => {

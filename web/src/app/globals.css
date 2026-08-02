@@ -189,6 +189,7 @@ a {
 .radius-control { border-radius: var(--radius-control); }
 .radius-floating { border-radius: var(--radius-floating); }
 .radius-card { border-radius: var(--radius-card); }
+.radius-full { border-radius: var(--radius-full); }
 .theme-option[aria-pressed="true"] {
   background-color: var(--ds-color-ink);
   color: var(--ds-color-canvas);

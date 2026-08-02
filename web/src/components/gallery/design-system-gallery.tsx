@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import {
+  Badge,
   Button,
   Card,
+  Checkbox,
+  CommandDialog,
   ContextPanel,
   Divider,
   EmptyState,
@@ -13,6 +16,7 @@ import {
   Progress,
   SectionHeader,
   SelectInput,
+  Skeleton,
   TextArea,
   TextInput,
   Timeline,
@@ -30,13 +34,15 @@ const colors = ["canvas", "paper", "ink", "muted", "border", "accent", "success"
 
 export function DesignSystemGallery() {
   const [editorOpen, setEditorOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [query, setQuery] = useState("");
   return (
     <div id="top">
       <Navigation groups={navigation} profile={{ name: "Yuxing", detail: "Personal workspace" }} />
       <main className="min-h-screen px-5 pb-28 pt-12 md:ml-[72px] md:px-10 lg:ml-[var(--layout-nav)] lg:px-12 xl:mr-[var(--layout-context)]">
         <div className="mx-auto max-w-[var(--layout-reading)]">
           <header className="mb-[var(--space-9)] border-b border-border pb-[var(--space-8)]">
-            <p className="type-label mb-4 text-accent">Foundations · V2.0</p>
+            <div className="mb-4 flex flex-wrap items-center gap-3"><p className="type-label m-0 text-accent">Foundations · V2.0</p><Badge>Demo / Sample Data</Badge></div>
             <h1 className="type-display-xl">CSIG Sales OS — Design System</h1>
             <p className="type-body-lg mt-5 max-w-2xl text-muted">A quiet editorial foundation for a private Solution Sales workspace. Typography, action and reflection lead; interface decoration recedes.</p>
             <div className="mt-8"><ThemeToggle /></div>
@@ -57,6 +63,19 @@ export function DesignSystemGallery() {
               <p className="type-heading-2">Heading 2 — thoughtful structure</p>
               <p className="type-body-lg max-w-2xl text-muted">Body Large carries reflective writing at a calm reading rhythm. It remains generous on mobile rather than collapsing into metadata.</p>
               <p className="type-label text-accent">Small uppercase label</p>
+            </div>
+          </GallerySection>
+
+          <GallerySection id="cross-cutting-controls" title="Cross-cutting Controls" description="Shared selection, state, search and loading patterns for every business workflow.">
+            <div className="grid grid-cols-2 gap-8 max-sm:grid-cols-1">
+              <div className="space-y-5">
+                <Checkbox description="A calm native control with visible focus and a full text label." label="Include archived sample entries" />
+                <div className="flex flex-wrap gap-3"><Badge>Draft</Badge><Badge tone="accent">Verified</Badge><Badge tone="success">Available</Badge><Badge tone="danger">Needs review</Badge></div>
+                <Button onClick={() => setCommandOpen(true)} variant="secondary">Open command dialog</Button>
+              </div>
+              <div aria-label="Sample loading structure" className="space-y-4" role="status">
+                <Skeleton className="w-1/3" /><Skeleton /><Skeleton className="w-5/6" />
+              </div>
             </div>
           </GallerySection>
 
@@ -115,6 +134,9 @@ export function DesignSystemGallery() {
           <Card variant="empty"><SectionHeader action={<button className="type-control text-accent" onClick={() => setEditorOpen(false)} type="button">Close</button>} description="AI integrations remain outside this Design System foundation." title="Your Editor" /><p className="type-body-md mb-0 mt-6 text-muted">This surface verifies the quiet entry pattern without sending any data to an external model.</p></Card>
         </div>
       ) : <FloatingAiEntry onOpen={() => setEditorOpen(true)} />}
+      <CommandDialog description="Search uses fictional entries on this public gallery." onOpenChange={setCommandOpen} onQueryChange={setQuery} open={commandOpen} query={query} title="Search sample workspace">
+        <button aria-selected="false" className="type-body-md min-h-11 w-full border-b border-border px-3 text-left text-ink hover:text-accent" role="option" type="button">AI teaching assistant · Sample Knowledge</button>
+      </CommandDialog>
     </div>
   );
 }

@@ -1,5 +1,8 @@
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./button";
+export { Badge, type BadgeProps, type BadgeTone } from "./badge";
 export { Card, type CardProps, type CardVariant } from "./card";
+export { Checkbox, type CheckboxProps } from "./checkbox";
+export { CommandDialog, type CommandDialogProps } from "./command-dialog";
 export { ContextPanel, ContextPanelSheet, type ContextPanelProps } from "./context-panel";
 export { Divider, type DividerVariant } from "./divider";
 export { EmptyState, type EmptyStateProps } from "./empty-state";
@@ -8,4 +11,5 @@ export { InputField, type InputFieldProps, SelectInput, TextArea, TextInput } fr
 export { Navigation, type NavigationGroup, type NavigationItem, type NavigationProfile } from "./navigation";
 export { Progress, type ProgressProps } from "./progress";
 export { SectionHeader, type SectionHeaderProps } from "./section-header";
+export { Skeleton, type SkeletonProps } from "./skeleton";
 export { Timeline, type TimelineEntry } from "./timeline";
