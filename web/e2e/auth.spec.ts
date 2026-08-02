@@ -49,17 +49,7 @@ test.describe("authenticated login boundary", () => {
     userId = data.user!.id;
   });
 
-  test.afterAll(async () => {
-    if (!userId || !localSupabaseUrl || !serviceRoleKey) return;
-
-    const admin = createClient(localSupabaseUrl.href, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { error } = await admin.auth.admin.deleteUser(userId);
-    expect(error).toBeNull();
-  });
-
-  test("redirects an authenticated user away from login", async ({ page }) => {
+  test("redirects authenticated users and appends sanitized sign-in and sign-out audits", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("邮箱").fill(email);
     await page.getByLabel("密码").fill(password);
@@ -68,5 +58,28 @@ test.describe("authenticated login boundary", () => {
     await expect(page).toHaveURL(/\/$/);
     await page.goto("/login");
     await expect(page).toHaveURL(/\/$/);
+
+    await page.getByRole("button", { name: "退出登录" }).click();
+    await expect(page).toHaveURL(/\/login$/);
+
+    const verifier = createClient(localSupabaseUrl!.href, supabaseAnonKey!, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    expect((await verifier.auth.signInWithPassword({ email, password })).error).toBeNull();
+
+    const { data: auditRows, error: auditError } = await verifier
+      .from("audit_logs")
+      .select("action,entity_type,changed_fields,metadata,request_ip_hash,user_agent,error_code")
+      .eq("owner_id", userId)
+      .in("action", ["SignedIn", "SignedOut"])
+      .order("occurred_at", { ascending: true });
+
+    expect(auditError).toBeNull();
+    expect(auditRows?.map(({ action }) => action)).toEqual(["SignedIn", "SignedOut"]);
+    expect(auditRows?.every(({ entity_type }) => entity_type === "AuthSession")).toBe(true);
+    const serializedAudit = JSON.stringify(auditRows);
+    expect(serializedAudit).not.toContain(email);
+    expect(serializedAudit).not.toContain(password);
+    expect(serializedAudit.toLowerCase()).not.toContain("token");
   });
 });

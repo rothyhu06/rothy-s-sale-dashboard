@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth/require-user";
+import { signInWithAudit, signOutWithAudit } from "@/lib/auth/session-audit";
 import { createServerClient } from "@/lib/supabase/server";
 
 export async function signIn(formData: FormData) {
@@ -13,9 +13,12 @@ export async function signIn(formData: FormData) {
   }
 
   const supabase = await createServerClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const result = await signInWithAudit(
+    { email, password },
+    { auth: supabase.auth },
+  );
 
-  if (error) {
+  if (!result.ok) {
     redirect("/login?error=invalid_credentials");
   }
 
@@ -24,7 +27,6 @@ export async function signIn(formData: FormData) {
 
 export async function signOut() {
   const supabase = await createServerClient();
-  await requireUser(supabase);
-  await supabase.auth.signOut();
+  await signOutWithAudit({ auth: supabase.auth });
   redirect("/login");
 }
