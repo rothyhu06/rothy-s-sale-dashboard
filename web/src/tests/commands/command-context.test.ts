@@ -1,46 +1,90 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCommandContext } from "@/lib/commands/command-context";
 
-function authenticatedClient(userId = "937c8b0a-7c21-4604-a428-0a9523bbb3fc") {
-  const claims = { sub: userId, email: "owner@example.test" };
+const ownerId = "937c8b0a-7c21-4604-a428-0a9523bbb3fc";
+const receiptId = "7738b1f3-760a-49b0-bb86-f7f9ed51784c";
+const operationId = "60d74e72-8209-42df-ab94-eace52caf1b3";
 
-  return {
-    claims,
-    client: {
-      auth: {
-        getClaims: vi.fn().mockResolvedValue({
-          data: { claims },
-          error: null,
-        }),
-      },
+function dependencies(
+  receipt: {
+    id: string;
+    operation_id: string;
+    status: "Processing" | "Completed" | "Failed";
+    result_reference: Record<string, unknown> | null;
+  } = {
+    id: receiptId,
+    operation_id: operationId,
+    status: "Processing",
+    result_reference: null,
+  },
+) {
+  const claims = { sub: ownerId, email: "owner@example.test" };
+  const authClient = {
+    auth: {
+      getClaims: vi.fn().mockResolvedValue({ data: { claims }, error: null }),
     },
   };
+  const receiptClient = {
+    rpc: vi.fn().mockResolvedValue({ data: [receipt], error: null }),
+  };
+
+  return { claims, authClient, receiptClient };
 }
 
 describe("createCommandContext", () => {
-  it("authenticates the owner and generates the operation id on the server", async () => {
-    const { claims, client } = authenticatedClient();
+  it("claims a receipt for the verified owner and returns its stable operation id", async () => {
+    const deps = dependencies();
 
     const context = await createCommandContext(
       "CreateCustomer",
       "4bcaf4a9-a42a-48a8-a511-ebf2c03dd91f",
-      client,
+      deps,
     );
 
-    expect(context.user).toBe(claims);
-    expect(context.operationId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    );
-    expect(client.auth.getClaims).toHaveBeenCalledOnce();
+    expect(context).toEqual({
+      user: deps.claims,
+      receiptId,
+      operationId,
+      status: "Processing",
+      resultReference: null,
+    });
+    expect(deps.receiptClient.rpc).toHaveBeenCalledWith("claim_command_receipt", {
+      p_verified_user_id: ownerId,
+      p_command_type: "CreateCustomer",
+      p_client_request_id: "4bcaf4a9-a42a-48a8-a511-ebf2c03dd91f",
+    });
   });
 
-  it("does not reuse a caller-controlled id as the operation id", async () => {
-    const clientRequestId = "94dc7703-0b72-44aa-bf05-3ac59b41ae5a";
-    const { client } = authenticatedClient();
+  it("returns the original lightweight result when a completed command is retried", async () => {
+    const resultReference = { entityType: "Customer", entityId: "customer-123" };
+    const deps = dependencies({
+      id: receiptId,
+      operation_id: operationId,
+      status: "Completed",
+      result_reference: resultReference,
+    });
 
-    const context = await createCommandContext("CreateCustomer", clientRequestId, client);
+    const context = await createCommandContext(
+      "CreateCustomer",
+      "4bcaf4a9-a42a-48a8-a511-ebf2c03dd91f",
+      deps,
+    );
 
-    expect(context.operationId).not.toBe(clientRequestId);
+    expect(context.operationId).toBe(operationId);
+    expect(context.status).toBe("Completed");
+    expect(context.resultReference).toEqual(resultReference);
+  });
+
+  it("fails closed when receipt claiming fails", async () => {
+    const deps = dependencies();
+    deps.receiptClient.rpc.mockResolvedValue({
+      data: null,
+      error: new Error("database unavailable"),
+    });
+
+    await expect(
+      createCommandContext("CreateCustomer", crypto.randomUUID(), deps),
+    ).rejects.toThrow("Command receipt could not be claimed");
   });
 
   it.each([
@@ -48,11 +92,16 @@ describe("createCommandContext", () => {
     ["Create Customer", "commandType"],
     ["CreateCustomer", "clientRequestId"],
   ])("rejects invalid command input %s", async (commandType, expectedField) => {
-    const { client } = authenticatedClient();
+    const deps = dependencies();
 
     await expect(
-      createCommandContext(commandType, commandType === "CreateCustomer" ? "not-a-uuid" : crypto.randomUUID(), client),
+      createCommandContext(
+        commandType,
+        commandType === "CreateCustomer" ? "not-a-uuid" : crypto.randomUUID(),
+        deps,
+      ),
     ).rejects.toThrow(expectedField);
-    expect(client.auth.getClaims).not.toHaveBeenCalled();
+    expect(deps.authClient.auth.getClaims).not.toHaveBeenCalled();
+    expect(deps.receiptClient.rpc).not.toHaveBeenCalled();
   });
 });
