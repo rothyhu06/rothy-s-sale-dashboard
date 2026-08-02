@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(42);
+select plan(57);
 
 select has_type('public', 'data_level', 'data_level enum exists');
 select has_type('public', 'command_status', 'command_status enum exists');
@@ -112,6 +112,42 @@ select throws_ok(
 );
 select throws_ok(
   $$
+    select public.claim_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      'BrowserBypass',
+      '20000000-0000-4000-8000-000000000090'
+    )
+  $$,
+  '42501', null,
+  'authenticated clients cannot invoke the public Saga claim RPC'
+);
+select throws_ok(
+  $$
+    select public.complete_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000091',
+      '30000000-0000-4000-8000-000000000091',
+      'Completed', null, null, null
+    )
+  $$,
+  '42501', null,
+  'authenticated clients cannot invoke the public Saga complete RPC'
+);
+select throws_ok(
+  $$
+    select public.retry_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      'BrowserBypass',
+      '20000000-0000-4000-8000-000000000090',
+      '20000000-0000-4000-8000-000000000091',
+      '30000000-0000-4000-8000-000000000091'
+    )
+  $$,
+  '42501', null,
+  'authenticated clients cannot invoke the public Saga retry RPC'
+);
+select throws_ok(
+  $$
     select private.append_audit_log(
       '10000000-0000-4000-8000-000000000001',
       'BrowserBypass', 'AuditLog', null, null, null, null,
@@ -146,6 +182,42 @@ select throws_ok(
   $$,
   '42501', null,
   'anonymous clients cannot invoke the audit writer'
+);
+select throws_ok(
+  $$
+    select public.claim_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      'AnonymousBypass',
+      '20000000-0000-4000-8000-000000000092'
+    )
+  $$,
+  '42501', null,
+  'anonymous clients cannot invoke the public Saga claim RPC'
+);
+select throws_ok(
+  $$
+    select public.complete_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000093',
+      '30000000-0000-4000-8000-000000000093',
+      'Completed', null, null, null
+    )
+  $$,
+  '42501', null,
+  'anonymous clients cannot invoke the public Saga complete RPC'
+);
+select throws_ok(
+  $$
+    select public.retry_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      'AnonymousBypass',
+      '20000000-0000-4000-8000-000000000092',
+      '20000000-0000-4000-8000-000000000093',
+      '30000000-0000-4000-8000-000000000093'
+    )
+  $$,
+  '42501', null,
+  'anonymous clients cannot invoke the public Saga retry RPC'
 );
 select is((select count(*) from public.command_receipts), 0::bigint, 'anon cannot read command receipts');
 select is((select count(*) from public.audit_logs), 0::bigint, 'anon cannot read audit logs');
@@ -214,13 +286,13 @@ reset role;
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 set local role service_role;
 create temporary table first_claim on commit drop as
-select * from public.claim_command_receipt(
+select * from public.claim_saga_command_receipt(
   '10000000-0000-4000-8000-000000000001',
   'CreateOpportunity',
   '20000000-0000-4000-8000-000000000010'
 );
 create temporary table retry_claim on commit drop as
-select * from public.claim_command_receipt(
+select * from public.claim_saga_command_receipt(
   '10000000-0000-4000-8000-000000000001',
   'CreateOpportunity',
   '20000000-0000-4000-8000-000000000010'
@@ -238,7 +310,7 @@ select is(
 );
 select lives_ok(
   $$
-    select public.complete_command_receipt(
+    select public.complete_saga_command_receipt(
       '10000000-0000-4000-8000-000000000001',
       (select id from first_claim),
       (select operation_id from first_claim),
@@ -251,7 +323,7 @@ select lives_ok(
   'Processing receipt can transition to Completed'
 );
 create temporary table completed_replay on commit drop as
-select * from public.claim_command_receipt(
+select * from public.claim_saga_command_receipt(
   '10000000-0000-4000-8000-000000000001',
   'CreateOpportunity',
   '20000000-0000-4000-8000-000000000010'
@@ -269,7 +341,7 @@ select is(
 );
 select throws_ok(
   $$
-    select public.complete_command_receipt(
+    select public.complete_saga_command_receipt(
       '10000000-0000-4000-8000-000000000001',
       (select id from first_claim),
       (select operation_id from first_claim),
@@ -293,24 +365,27 @@ select throws_ok(
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 set local role service_role;
 create temporary table failed_claim on commit drop as
-select * from public.claim_command_receipt(
+select * from public.claim_saga_command_receipt(
   '10000000-0000-4000-8000-000000000001',
   'DeleteAttachment',
   '20000000-0000-4000-8000-000000000020'
 );
 select lives_ok(
   $$
-    select public.complete_command_receipt(
+    select public.complete_saga_command_receipt(
       '10000000-0000-4000-8000-000000000001',
       (select id from failed_claim),
       (select operation_id from failed_claim),
-      'Failed', null, null, null
+      'Failed',
+      'Attachment',
+      '40000000-0000-4000-8000-000000000020',
+      '{"errorCode":"StorageUnavailable"}'::jsonb
     )
   $$,
   'Processing receipt can transition to Failed'
 );
 create temporary table failed_replay on commit drop as
-select * from public.claim_command_receipt(
+select * from public.claim_saga_command_receipt(
   '10000000-0000-4000-8000-000000000001',
   'DeleteAttachment',
   '20000000-0000-4000-8000-000000000020'
@@ -323,7 +398,7 @@ select is(
 );
 select throws_ok(
   $$
-    select public.complete_command_receipt(
+    select public.complete_saga_command_receipt(
       '10000000-0000-4000-8000-000000000001',
       (select id from failed_claim),
       (select operation_id from failed_claim),
@@ -334,6 +409,98 @@ select throws_ok(
   'Failed cannot transition to Completed'
 );
 reset role;
+
+select throws_ok(
+  $$
+    update public.command_receipts
+    set
+      status = 'Processing',
+      result_entity_type = null,
+      result_entity_id = null,
+      result_reference = null,
+      completed_at = null
+    where id = (select id from failed_claim)
+  $$,
+  'P0001', 'terminal command receipts are immutable',
+  'Failed cannot be reopened by an arbitrary bypass update'
+);
+
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+set local role service_role;
+select lives_ok(
+  $$
+    select public.retry_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      'DeleteAttachment',
+      '20000000-0000-4000-8000-000000000020',
+      (select id from failed_claim),
+      (select operation_id from failed_claim)
+    )
+  $$,
+  'dedicated Saga retry reopens Failed as Processing'
+);
+create temporary table resumed_claim on commit drop as
+select * from public.claim_saga_command_receipt(
+  '10000000-0000-4000-8000-000000000001',
+  'DeleteAttachment',
+  '20000000-0000-4000-8000-000000000020'
+);
+select is((select status::text from resumed_claim), 'Processing', 'Saga retry reports Processing');
+select is(
+  (select operation_id from resumed_claim),
+  (select operation_id from failed_claim),
+  'Saga retry preserves the original operation id'
+);
+select is(
+  (select result_reference from resumed_claim),
+  null::jsonb,
+  'Saga retry clears the terminal result reference'
+);
+reset role;
+select is(
+  (
+    select completed_at
+    from public.command_receipts
+    where id = (select id from resumed_claim)
+  ),
+  null::timestamptz,
+  'Saga retry clears the prior completion timestamp'
+);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+set local role service_role;
+select lives_ok(
+  $$
+    select public.complete_saga_command_receipt(
+      '10000000-0000-4000-8000-000000000001',
+      (select id from resumed_claim),
+      (select operation_id from resumed_claim),
+      'Completed', 'Attachment',
+      '40000000-0000-4000-8000-000000000020',
+      '{"entityType":"Attachment","entityId":"40000000-0000-4000-8000-000000000020"}'::jsonb
+    )
+  $$,
+  'retried Processing receipt can complete normally'
+);
+reset role;
+
+select is(
+  (
+    select completed_at is not null
+    from public.command_receipts
+    where id = (select id from resumed_claim)
+  ),
+  true,
+  'retried completion writes a new completion timestamp'
+);
+select is(
+  (
+    select result_reference ->> 'entityId'
+    from public.command_receipts
+    where id = (select id from resumed_claim)
+  ),
+  '40000000-0000-4000-8000-000000000020',
+  'retried completion replaces the prior failure result only after controlled reopen'
+);
 
 select throws_ok(
   $$

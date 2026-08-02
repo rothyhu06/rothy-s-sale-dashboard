@@ -115,11 +115,24 @@ begin
     raise exception using errcode = 'P0001', message = 'command receipt identity is immutable';
   end if;
 
-  if old.status <> 'Processing' then
+  if old.status = 'Completed' then
     raise exception using errcode = 'P0001', message = 'terminal command receipts are immutable';
   end if;
 
-  if new.status not in ('Completed', 'Failed') then
+  if old.status = 'Failed' then
+    if current_setting('app.saga_retry_receipt_id', true) is distinct from old.id::text
+      or new.status <> 'Processing'
+      or new.result_entity_type is not null
+      or new.result_entity_id is not null
+      or new.result_reference is not null
+      or new.completed_at is not null then
+      raise exception using errcode = 'P0001', message = 'terminal command receipts are immutable';
+    end if;
+
+    return new;
+  end if;
+
+  if old.status <> 'Processing' or new.status not in ('Completed', 'Failed') then
     raise exception using errcode = 'P0001', message = 'invalid command receipt transition';
   end if;
 
@@ -246,7 +259,66 @@ begin
 end;
 $$;
 
-create function public.claim_command_receipt(
+create function private.retry_failed_command_receipt(
+  p_owner_id uuid,
+  p_command_type text,
+  p_client_request_id uuid,
+  p_receipt_id uuid,
+  p_operation_id uuid
+)
+returns table (
+  id uuid,
+  operation_id uuid,
+  status public.command_status,
+  result_reference jsonb
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  receipt public.command_receipts%rowtype;
+begin
+  select existing.* into receipt
+  from public.command_receipts as existing
+  where existing.owner_id = p_owner_id
+    and existing.command_type = p_command_type
+    and existing.client_request_id = p_client_request_id
+    and existing.id = p_receipt_id
+    and existing.operation_id = p_operation_id
+  for update;
+
+  if receipt.id is null then
+    raise exception using errcode = 'P0001', message = 'command receipt not found';
+  end if;
+
+  if receipt.status <> 'Failed' then
+    raise exception using errcode = 'P0001', message = 'only Failed Saga receipts can be retried';
+  end if;
+
+  perform set_config('app.saga_retry_receipt_id', receipt.id::text, true);
+
+  update public.command_receipts
+  set
+    status = 'Processing',
+    result_entity_type = null,
+    result_entity_id = null,
+    result_reference = null,
+    completed_at = null
+  where command_receipts.id = receipt.id
+  returning * into receipt;
+
+  perform set_config('app.saga_retry_receipt_id', '', true);
+
+  return query select
+    receipt.id,
+    receipt.operation_id,
+    receipt.status,
+    receipt.result_reference;
+end;
+$$;
+
+create function public.claim_saga_command_receipt(
   p_verified_user_id uuid,
   p_command_type text,
   p_client_request_id uuid
@@ -273,7 +345,7 @@ begin
 end;
 $$;
 
-create function public.complete_command_receipt(
+create function public.complete_saga_command_receipt(
   p_verified_user_id uuid,
   p_receipt_id uuid,
   p_operation_id uuid,
@@ -306,6 +378,39 @@ begin
     p_result_entity_type,
     p_result_entity_id,
     p_result_reference
+  );
+end;
+$$;
+
+create function public.retry_saga_command_receipt(
+  p_verified_user_id uuid,
+  p_command_type text,
+  p_client_request_id uuid,
+  p_receipt_id uuid,
+  p_operation_id uuid
+)
+returns table (
+  id uuid,
+  operation_id uuid,
+  status public.command_status,
+  result_reference jsonb
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.role() <> 'service_role' then
+    raise exception using errcode = '42501', message = 'service role required';
+  end if;
+
+  return query
+  select * from private.retry_failed_command_receipt(
+    p_verified_user_id,
+    p_command_type,
+    p_client_request_id,
+    p_receipt_id,
+    p_operation_id
   );
 end;
 $$;
@@ -391,18 +496,22 @@ revoke all on table public.audit_logs from anon, authenticated, service_role;
 grant select on table public.command_receipts to anon, authenticated;
 grant select on table public.audit_logs to anon, authenticated;
 
-revoke all on function public.claim_command_receipt(uuid, text, uuid)
+revoke all on function public.claim_saga_command_receipt(uuid, text, uuid)
   from public, anon, authenticated;
-revoke all on function public.complete_command_receipt(
+revoke all on function public.complete_saga_command_receipt(
   uuid, uuid, uuid, public.command_status, text, uuid, jsonb
 ) from public, anon, authenticated;
+revoke all on function public.retry_saga_command_receipt(uuid, text, uuid, uuid, uuid)
+  from public, anon, authenticated;
 revoke all on function public.write_audit_log(
   uuid, text, text, uuid, uuid, uuid, uuid, jsonb, jsonb, text, text, text, text
 ) from public, anon, authenticated;
-grant execute on function public.claim_command_receipt(uuid, text, uuid) to service_role;
-grant execute on function public.complete_command_receipt(
+grant execute on function public.claim_saga_command_receipt(uuid, text, uuid) to service_role;
+grant execute on function public.complete_saga_command_receipt(
   uuid, uuid, uuid, public.command_status, text, uuid, jsonb
 ) to service_role;
+grant execute on function public.retry_saga_command_receipt(uuid, text, uuid, uuid, uuid)
+  to service_role;
 grant execute on function public.write_audit_log(
   uuid, text, text, uuid, uuid, uuid, uuid, jsonb, jsonb, text, text, text, text
 ) to service_role;
@@ -412,6 +521,8 @@ revoke all on function private.claim_command_receipt(uuid, text, uuid)
 revoke all on function private.complete_command_receipt(
   uuid, uuid, uuid, public.command_status, text, uuid, jsonb
 ) from public, anon, authenticated, service_role;
+revoke all on function private.retry_failed_command_receipt(uuid, text, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
 revoke all on function private.append_audit_log(
   uuid, text, text, uuid, uuid, uuid, uuid, jsonb, jsonb, text, text, text, text
 ) from public, anon, authenticated, service_role;
@@ -427,6 +538,8 @@ comment on function private.claim_command_receipt(uuid, text, uuid) is
 comment on function private.complete_command_receipt(
   uuid, uuid, uuid, public.command_status, text, uuid, jsonb
 ) is 'Composable terminal receipt transition for future business command RPC transactions.';
+comment on function private.retry_failed_command_receipt(uuid, text, uuid, uuid, uuid) is
+  'Controlled Failed to Processing transition reserved for resource Saga retry.';
 comment on function private.append_audit_log(
   uuid, text, text, uuid, uuid, uuid, uuid, jsonb, jsonb, text, text, text, text
 ) is 'Composable audit append primitive for future atomic business command RPC transactions.';
