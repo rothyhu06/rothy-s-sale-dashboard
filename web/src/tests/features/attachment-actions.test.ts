@@ -81,4 +81,63 @@ describe("prepareUpload", () => {
     expect(client.createSignedUploadUrl).toHaveBeenCalledWith(`${ownerId}/${attachmentId}/proposal.pdf`, { upsert: false });
     expect(result).toMatchObject({ attachmentId, uploadToken: "short-lived-token" });
   });
+
+  it("revalidates a Completed prepare receipt before issuing another credential", async () => {
+    claimSagaCommand.mockResolvedValue({
+      receiptId,
+      operationId,
+      status: "Completed",
+      resultReference: { attachmentId, objectPath: `${ownerId}/${attachmentId}/proposal.pdf` },
+    });
+    const client = serviceClient();
+    client.rpc.mockResolvedValue({ data: null, error: new Error("attachment is no longer Pending") });
+    const actions = createAttachmentActions({ authClient: {} as never, serviceClient: client as never });
+
+    await expect(actions.prepareUpload({
+      originalFilename: "Proposal Final.pdf", mimeType: "application/pdf", sizeBytes: 1024, dataLevel: "Level3",
+    }, crypto.randomUUID())).rejects.toThrow("credential");
+    expect(client.createSignedUploadUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("requestAttachmentDeletion recovery", () => {
+  it("resumes the same Processing receipt after interruption without re-tombstoning or using a fresh version", async () => {
+    vi.clearAllMocks();
+    const clientRequestId = crypto.randomUUID();
+    createCommandContext.mockResolvedValue({ user: { sub: ownerId }, commandType: "DeleteAttachment", clientRequestId });
+    claimSagaCommand.mockResolvedValue({ receiptId, operationId, status: "Processing", resultReference: null });
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const list = vi.fn().mockResolvedValue({ data: [], error: null });
+    let requestCount = 0;
+    const rpc = vi.fn().mockImplementation((name: string) => {
+      if (name === "request_attachment_deletion") {
+        requestCount += 1;
+        return Promise.resolve({
+          data: [{
+            id: attachmentId,
+            object_path: `${ownerId}/${attachmentId}/proposal.pdf`,
+            storage_status: "DeletePending",
+            version: 3,
+            upload_credential_expires_at: requestCount === 1 ? new Date(Date.now() + 60_000).toISOString() : new Date(0).toISOString(),
+          }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    const actions = createAttachmentActions({
+      authClient: {} as never,
+      serviceClient: { rpc, storage: { from: () => ({ remove, list }) } } as never,
+    });
+
+    const first = await actions.requestAttachmentDeletion({ attachmentId, expectedVersion: 2 }, clientRequestId);
+    expect(first).toMatchObject({ storageStatus: "DeletePending" });
+    expect(first).toHaveProperty("retryAfter");
+    expect(remove).not.toHaveBeenCalled();
+
+    await expect(actions.requestAttachmentDeletion({ attachmentId, expectedVersion: 2 }, clientRequestId)).resolves.toEqual({ attachmentId, storageStatus: "Deleted" });
+    expect(rpc).toHaveBeenNthCalledWith(1, "request_attachment_deletion", expect.objectContaining({ p_expected_version: 2 }));
+    expect(rpc).toHaveBeenNthCalledWith(2, "request_attachment_deletion", expect.objectContaining({ p_expected_version: 2 }));
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
 });

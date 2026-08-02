@@ -15,7 +15,7 @@ export function CommandDialog({ children, description, empty, onOpenChange, onQu
         </div>
         <div className="p-4">
           <TextInput aria-label={title} autoFocus onChange={(event) => onQueryChange(event.target.value)} placeholder="Search…" role="searchbox" value={query} />
-          <div className="mt-4 max-h-[50vh] overflow-y-auto" role="listbox">{children || empty}</div>
+          <div aria-label="Search results" className="mt-4 max-h-[50vh] overflow-y-auto" role="region">{children || empty}</div>
         </div>
       </DialogContent>
     </Dialog>

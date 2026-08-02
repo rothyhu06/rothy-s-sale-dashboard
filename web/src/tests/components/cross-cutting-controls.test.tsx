@@ -19,6 +19,8 @@ describe("cross-cutting Design System controls", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search workspace" }), { target: { value: "AI" } });
     expect(onQueryChange).toHaveBeenCalledWith("AI");
     expect(screen.getByRole("dialog", { name: "Search workspace" })).toBeVisible();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Search results" })).toBeVisible();
   });
 
   it("keeps badges textual and skeletons non-announcing", () => {

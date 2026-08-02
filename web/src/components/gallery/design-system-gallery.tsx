@@ -135,7 +135,7 @@ export function DesignSystemGallery() {
         </div>
       ) : <FloatingAiEntry onOpen={() => setEditorOpen(true)} />}
       <CommandDialog description="Search uses fictional entries on this public gallery." onOpenChange={setCommandOpen} onQueryChange={setQuery} open={commandOpen} query={query} title="Search sample workspace">
-        <button aria-selected="false" className="type-body-md min-h-11 w-full border-b border-border px-3 text-left text-ink hover:text-accent" role="option" type="button">AI teaching assistant · Sample Knowledge</button>
+        <button className="type-body-md min-h-11 w-full border-b border-border px-3 text-left text-ink hover:text-accent" type="button">AI teaching assistant · Sample Knowledge</button>
       </CommandDialog>
     </div>
   );

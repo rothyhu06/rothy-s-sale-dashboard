@@ -27,6 +27,8 @@ create table public.attachments (
   uploaded_at timestamptz,
   storage_deleted_at timestamptz,
   prepared_operation_id uuid not null,
+  upload_credential_expires_at timestamptz,
+  delete_operation_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   version integer not null default 1 check (version > 0),
@@ -166,7 +168,7 @@ alter table public.tags force row level security;
 alter table public.tag_links enable row level security;
 alter table public.tag_links force row level security;
 
-create policy attachments_select_owner on public.attachments for select to authenticated using (auth.uid() = owner_id);
+create policy attachments_select_owner on public.attachments for select to authenticated using (auth.uid() = owner_id and deleted_at is null);
 create policy attachments_insert_denied on public.attachments for insert to authenticated with check (false);
 create policy attachments_update_denied on public.attachments for update to authenticated using (false) with check (false);
 create policy attachments_delete_denied on public.attachments for delete to authenticated using (false);
@@ -174,7 +176,7 @@ create policy attachment_links_select_owner on public.attachment_links for selec
 create policy attachment_links_insert_denied on public.attachment_links for insert to authenticated with check (false);
 create policy attachment_links_update_denied on public.attachment_links for update to authenticated using (false) with check (false);
 create policy attachment_links_delete_denied on public.attachment_links for delete to authenticated using (false);
-create policy tags_select_owner on public.tags for select to authenticated using (auth.uid() = owner_id);
+create policy tags_select_owner on public.tags for select to authenticated using (auth.uid() = owner_id and deleted_at is null);
 create policy tags_insert_denied on public.tags for insert to authenticated with check (false);
 create policy tags_update_denied on public.tags for update to authenticated using (false) with check (false);
 create policy tags_delete_denied on public.tags for delete to authenticated using (false);
@@ -271,6 +273,43 @@ begin
 end;
 $$;
 
+create function public.authorize_attachment_upload_credential(
+  p_verified_user_id uuid, p_operation_id uuid, p_attachment_id uuid,
+  p_object_path text, p_expires_at timestamptz
+)
+returns table (id uuid, object_path text, storage_status public.attachment_storage_status, upload_credential_expires_at timestamptz)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare attachment public.attachments%rowtype;
+begin
+  if auth.role() <> 'service_role' then raise exception using errcode = '42501', message = 'service role required'; end if;
+  if p_expires_at <= now() or p_expires_at > now() + interval '2 hours 10 minutes' then
+    raise exception using errcode = 'P0001', message = 'invalid upload credential expiry';
+  end if;
+  update public.attachments as target
+  set upload_credential_expires_at = greatest(coalesce(target.upload_credential_expires_at, p_expires_at), p_expires_at)
+  where target.owner_id = p_verified_user_id
+    and target.id = p_attachment_id
+    and target.object_path = p_object_path
+    and target.prepared_operation_id = p_operation_id
+    and target.storage_status = 'Pending'
+    and target.deleted_at is null
+  returning target.* into attachment;
+  if attachment.id is null then
+    raise exception using errcode = 'P0001', message = 'pending attachment credential target not found';
+  end if;
+  perform private.append_audit_log(
+    p_verified_user_id, 'AttachmentUploadCredentialAuthorized', 'Attachment', attachment.id,
+    null, null, p_operation_id, '[]'::jsonb,
+    jsonb_build_object('expiresAt', attachment.upload_credential_expires_at),
+    null, null, 'Success', null
+  );
+  return query select attachment.id, attachment.object_path, attachment.storage_status, attachment.upload_credential_expires_at;
+end;
+$$;
+
 create function public.finalize_attachment_upload(
   p_verified_user_id uuid, p_receipt_id uuid, p_operation_id uuid,
   p_attachment_id uuid, p_size_bytes bigint, p_mime_type text, p_checksum_sha256 text
@@ -332,7 +371,10 @@ create function public.request_attachment_deletion(
   p_verified_user_id uuid, p_receipt_id uuid, p_operation_id uuid,
   p_attachment_id uuid, p_expected_version integer
 )
-returns table (id uuid, object_path text, storage_status public.attachment_storage_status, version integer)
+returns table (
+  id uuid, object_path text, storage_status public.attachment_storage_status,
+  version integer, upload_credential_expires_at timestamptz
+)
 language plpgsql
 security definer
 set search_path = ''
@@ -341,16 +383,46 @@ declare attachment public.attachments%rowtype;
 begin
   if auth.role() <> 'service_role' then raise exception using errcode = '42501', message = 'service role required'; end if;
   perform private.require_processing_receipt(p_verified_user_id, p_receipt_id, p_operation_id, 'DeleteAttachment');
-  update public.attachments as target set storage_status = 'DeletePending', deleted_at = now(), deleted_by = p_verified_user_id,
-    storage_error_code = null
-  where target.owner_id = p_verified_user_id and target.id = p_attachment_id
-    and target.storage_status in ('Available', 'DeleteFailed') and target.version = p_expected_version
-  returning target.* into attachment;
-  if attachment.id is null then raise exception using errcode = 'P0001', message = 'attachment version conflict'; end if;
-  perform private.append_audit_log(p_verified_user_id, 'AttachmentDeleteRequested', 'Attachment', attachment.id,
-    null, null, p_operation_id, array_to_json(array['deleted_at','storage_status'])::jsonb,
-    jsonb_build_object('dataLevel', attachment.data_level), null, null, 'Success', null);
-  return query select attachment.id, attachment.object_path, attachment.storage_status, attachment.version;
+  select * into attachment from public.attachments
+  where owner_id = p_verified_user_id and attachments.id = p_attachment_id for update;
+  if attachment.id is null then raise exception using errcode = 'P0001', message = 'attachment not found'; end if;
+
+  if attachment.storage_status = 'Deleted' then
+    if attachment.delete_operation_id is distinct from p_operation_id then
+      raise exception using errcode = 'P0001', message = 'attachment belongs to another delete operation';
+    end if;
+    perform private.complete_command_receipt(
+      p_verified_user_id, p_receipt_id, p_operation_id, 'Completed', 'Attachment', attachment.id,
+      jsonb_build_object('attachmentId', attachment.id, 'storageStatus', 'Deleted')
+    );
+  elsif attachment.storage_status = 'DeletePending' then
+    if attachment.delete_operation_id is distinct from p_operation_id then
+      raise exception using errcode = 'P0001', message = 'attachment belongs to another delete operation';
+    end if;
+  elsif attachment.storage_status = 'DeleteFailed' then
+    if attachment.delete_operation_id is distinct from p_operation_id then
+      raise exception using errcode = 'P0001', message = 'attachment belongs to another delete operation';
+    end if;
+    update public.attachments as target set storage_status = 'DeletePending', storage_error_code = null
+    where target.owner_id = p_verified_user_id and target.id = p_attachment_id
+    returning target.* into attachment;
+  elsif attachment.storage_status = 'Available' then
+    if attachment.version <> p_expected_version then
+      raise exception using errcode = 'P0001', message = 'attachment version conflict';
+    end if;
+    update public.attachments as target
+    set storage_status = 'DeletePending', deleted_at = now(), deleted_by = p_verified_user_id,
+      delete_operation_id = p_operation_id, storage_error_code = null
+    where target.owner_id = p_verified_user_id and target.id = p_attachment_id
+    returning target.* into attachment;
+    perform private.append_audit_log(p_verified_user_id, 'AttachmentDeleteRequested', 'Attachment', attachment.id,
+      null, null, p_operation_id, array_to_json(array['deleted_at','storage_status'])::jsonb,
+      jsonb_build_object('dataLevel', attachment.data_level), null, null, 'Success', null);
+  else
+    raise exception using errcode = 'P0001', message = 'attachment cannot enter deletion';
+  end if;
+  return query select attachment.id, attachment.object_path, attachment.storage_status,
+    attachment.version, attachment.upload_credential_expires_at;
 end;
 $$;
 
@@ -365,8 +437,17 @@ as $$
 begin
   if auth.role() <> 'service_role' then raise exception using errcode = '42501', message = 'service role required'; end if;
   perform private.require_processing_receipt(p_verified_user_id, p_receipt_id, p_operation_id, 'DeleteAttachment');
+  if exists (
+    select 1 from public.attachments
+    where owner_id = p_verified_user_id and id = p_attachment_id
+      and upload_credential_expires_at is not null
+      and upload_credential_expires_at >= now()
+  ) then
+    raise exception using errcode = 'P0001', message = 'upload credential is still active';
+  end if;
   update public.attachments set storage_status = 'Deleted', storage_deleted_at = now(), storage_error_code = null
-  where owner_id = p_verified_user_id and id = p_attachment_id and storage_status = 'DeletePending';
+  where owner_id = p_verified_user_id and id = p_attachment_id and storage_status = 'DeletePending'
+    and delete_operation_id = p_operation_id;
   if not found then raise exception using errcode = 'P0001', message = 'delete-pending attachment not found'; end if;
   perform private.append_audit_log(p_verified_user_id, 'AttachmentDeleted', 'Attachment', p_attachment_id,
     null, null, p_operation_id, array_to_json(array['storage_status','storage_deleted_at'])::jsonb,
@@ -431,6 +512,7 @@ grant select on table public.attachments, public.attachment_links, public.tags, 
 grant select on table public.attachments, public.attachment_links, public.tags, public.tag_links to service_role;
 
 revoke all on function public.prepare_attachment_upload(uuid,uuid,uuid,text,text,text,text,bigint,public.attachment_file_category,public.data_level,text) from public, anon, authenticated;
+revoke all on function public.authorize_attachment_upload_credential(uuid,uuid,uuid,text,timestamptz) from public, anon, authenticated;
 revoke all on function public.finalize_attachment_upload(uuid,uuid,uuid,uuid,bigint,text,text) from public, anon, authenticated;
 revoke all on function public.fail_attachment_upload(uuid,uuid,uuid,uuid,text) from public, anon, authenticated;
 revoke all on function public.request_attachment_deletion(uuid,uuid,uuid,uuid,integer) from public, anon, authenticated;
@@ -438,6 +520,7 @@ revoke all on function public.complete_attachment_deletion(uuid,uuid,uuid,uuid) 
 revoke all on function public.fail_attachment_deletion(uuid,uuid,uuid,uuid,text) from public, anon, authenticated;
 revoke all on function public.create_tag(uuid,uuid,text,text,text,public.data_level) from public, anon, authenticated;
 grant execute on function public.prepare_attachment_upload(uuid,uuid,uuid,text,text,text,text,bigint,public.attachment_file_category,public.data_level,text) to service_role;
+grant execute on function public.authorize_attachment_upload_credential(uuid,uuid,uuid,text,timestamptz) to service_role;
 grant execute on function public.finalize_attachment_upload(uuid,uuid,uuid,uuid,bigint,text,text) to service_role;
 grant execute on function public.fail_attachment_upload(uuid,uuid,uuid,uuid,text) to service_role;
 grant execute on function public.request_attachment_deletion(uuid,uuid,uuid,uuid,integer) to service_role;

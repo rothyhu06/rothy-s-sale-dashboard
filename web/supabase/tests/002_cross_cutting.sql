@@ -174,6 +174,18 @@ select throws_ok(
 );
 reset role;
 
+set local role postgres;
+update public.tags set deleted_at = now(), deleted_by = '40000000-0000-4000-8000-000000000001'
+where id = '42000000-0000-4000-8000-000000000001';
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+set local role authenticated;
+select is((select count(*) from public.tags where id = '42000000-0000-4000-8000-000000000001'), 0::bigint, 'soft-deleted tags are hidden from ordinary owner queries');
+reset role;
+
 select set_config(
   'request.jwt.claims',
   '{"sub":"40000000-0000-4000-8000-000000000002","role":"authenticated"}',
@@ -233,6 +245,16 @@ select matches(
   '^40000000-0000-4000-8000-000000000001/[0-9a-f-]+/secure\.pdf$',
   'prepare command generates an owner-partitioned object path'
 );
+select lives_ok(
+  format(
+    'select * from public.authorize_attachment_upload_credential(%L, %L, %L, %L, now() + interval ''2 hours'')',
+    '40000000-0000-4000-8000-000000000001',
+    (select operation_id from prepare_claim),
+    (select id from prepared_attachment),
+    (select object_path from prepared_attachment)
+  ),
+  'upload credential issuance is recorded conservatively'
+);
 
 create temporary table finalize_claim on commit drop as
 select * from public.claim_saga_command_receipt(
@@ -260,6 +282,8 @@ select * from public.claim_saga_command_receipt(
   'DeleteAttachment',
   '44000000-0000-4000-8000-000000000004'
 );
+create temporary table delete_start_version on commit drop as
+select version from public.attachments where id = (select id from prepared_attachment);
 select is(
   (
     select storage_status::text from public.request_attachment_deletion(
@@ -267,12 +291,54 @@ select is(
       (select id from delete_claim),
       (select operation_id from delete_claim),
       (select id from prepared_attachment),
-      (select version from public.attachments where id = (select id from prepared_attachment))
+      (select version from delete_start_version)
     )
   ),
   'DeletePending',
   'delete request tombstones metadata before Storage removal'
 );
+select is(
+  (
+    select storage_status::text from public.request_attachment_deletion(
+      '40000000-0000-4000-8000-000000000001',
+      (select id from delete_claim),
+      (select operation_id from delete_claim),
+      (select id from prepared_attachment),
+      (select version from delete_start_version)
+    )
+  ),
+  'DeletePending',
+  'same Processing receipt resumes DeletePending despite the original stale version'
+);
+select throws_ok(
+  format(
+    'select public.complete_attachment_deletion(%L, %L, %L, %L)',
+    '40000000-0000-4000-8000-000000000001',
+    (select id from delete_claim),
+    (select operation_id from delete_claim),
+    (select id from prepared_attachment)
+  ),
+  'P0001', 'upload credential is still active',
+  'physical deletion cannot complete while an issued upload credential remains valid'
+);
+grant select on prepared_attachment to authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+set local role authenticated;
+select is(
+  (select count(*) from public.attachments where id = (select id from prepared_attachment)),
+  0::bigint,
+  'DeletePending attachment is hidden from ordinary owner queries'
+);
+reset role;
+set local role postgres;
+update public.attachments set upload_credential_expires_at = now() - interval '1 second'
+where id = (select id from prepared_attachment);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+set local role service_role;
 select lives_ok(
   format(
     'select public.complete_attachment_deletion(%L, %L, %L, %L)',
@@ -292,6 +358,104 @@ select isnt(
   (select storage_deleted_at from public.attachments where id = (select id from prepared_attachment)),
   null::timestamptz,
   'physical deletion completion receives its own timestamp'
+);
+
+create temporary table prepare_claim_recovery on commit drop as
+select * from public.claim_saga_command_receipt(
+  '40000000-0000-4000-8000-000000000001', 'PrepareAttachmentUpload',
+  '44000000-0000-4000-8000-000000000010'
+);
+create temporary table recovery_attachment on commit drop as
+select * from public.prepare_attachment_upload(
+  '40000000-0000-4000-8000-000000000001',
+  (select id from prepare_claim_recovery), (select operation_id from prepare_claim_recovery),
+  'recovery.pdf', 'recovery.pdf', 'application/pdf', 'pdf', 8, 'Document', 'Level3', 'Recovery test'
+);
+create temporary table finalize_claim_recovery on commit drop as
+select * from public.claim_saga_command_receipt(
+  '40000000-0000-4000-8000-000000000001', 'FinalizeAttachmentUpload',
+  '44000000-0000-4000-8000-000000000011'
+);
+select lives_ok(
+  format(
+    'select * from public.finalize_attachment_upload(%L,%L,%L,%L,8,%L,%L)',
+    '40000000-0000-4000-8000-000000000001',
+    (select id from finalize_claim_recovery), (select operation_id from finalize_claim_recovery),
+    (select id from recovery_attachment), 'application/pdf', repeat('b', 64)
+  ),
+  'recovery fixture becomes Available'
+);
+create temporary table delete_claim_recovery on commit drop as
+select * from public.claim_saga_command_receipt(
+  '40000000-0000-4000-8000-000000000001', 'DeleteAttachment',
+  '44000000-0000-4000-8000-000000000012'
+);
+create temporary table recovery_start_version on commit drop as
+select version from public.attachments where id = (select id from recovery_attachment);
+select lives_ok(
+  format(
+    'select * from public.request_attachment_deletion(%L,%L,%L,%L,%s)',
+    '40000000-0000-4000-8000-000000000001',
+    (select id from delete_claim_recovery), (select operation_id from delete_claim_recovery),
+    (select id from recovery_attachment), (select version from recovery_start_version)
+  ),
+  'recovery fixture enters DeletePending'
+);
+select lives_ok(
+  format(
+    'select public.fail_attachment_deletion(%L,%L,%L,%L,%L)',
+    '40000000-0000-4000-8000-000000000001',
+    (select id from delete_claim_recovery), (select operation_id from delete_claim_recovery),
+    (select id from recovery_attachment), 'StorageUnavailable'
+  ),
+  'resource failure records DeleteFailed and a Failed receipt'
+);
+select lives_ok(
+  format(
+    'select * from public.retry_saga_command_receipt(%L,%L,%L,%L,%L)',
+    '40000000-0000-4000-8000-000000000001', 'DeleteAttachment',
+    '44000000-0000-4000-8000-000000000012',
+    (select id from delete_claim_recovery), (select operation_id from delete_claim_recovery)
+  ),
+  'Failed delete retries with the original receipt and operation'
+);
+select is(
+  (
+    select storage_status::text from public.request_attachment_deletion(
+      '40000000-0000-4000-8000-000000000001',
+      (select id from delete_claim_recovery), (select operation_id from delete_claim_recovery),
+      (select id from recovery_attachment), (select version from recovery_start_version)
+    )
+  ),
+  'DeletePending',
+  'Failed retry resumes using current state rather than the original stale version'
+);
+reset role;
+set local role postgres;
+update public.attachments set storage_status = 'Deleted', storage_deleted_at = now()
+where id = (select id from recovery_attachment);
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+set local role service_role;
+select is(
+  (
+    select storage_status::text from public.request_attachment_deletion(
+      '40000000-0000-4000-8000-000000000001',
+      (select id from delete_claim_recovery), (select operation_id from delete_claim_recovery),
+      (select id from recovery_attachment), (select version from recovery_start_version)
+    )
+  ),
+  'Deleted',
+  'a same-operation retry recognizes an already physically Deleted attachment'
+);
+select is(
+  (
+    select status::text from public.claim_saga_command_receipt(
+      '40000000-0000-4000-8000-000000000001', 'DeleteAttachment',
+      '44000000-0000-4000-8000-000000000012'
+    )
+  ),
+  'Completed',
+  'Deleted recovery atomically completes the original receipt'
 );
 reset role;
 

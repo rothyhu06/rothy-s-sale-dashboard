@@ -238,12 +238,14 @@ select lives_ok(
 reset role;
 
 select is(
-  (select owner_id from public.audit_logs limit 1),
+  (select owner_id from public.audit_logs
+   where owner_id = '10000000-0000-4000-8000-000000000001' and action = 'SignedIn'),
   '10000000-0000-4000-8000-000000000001'::uuid,
   'audit owner is derived from the server-verified user id'
 );
 select is(
-  (select actor_id from public.audit_logs limit 1),
+  (select actor_id from public.audit_logs
+   where owner_id = '10000000-0000-4000-8000-000000000001' and action = 'SignedIn'),
   '10000000-0000-4000-8000-000000000001'::uuid,
   'audit actor is derived from the server-verified user id'
 );

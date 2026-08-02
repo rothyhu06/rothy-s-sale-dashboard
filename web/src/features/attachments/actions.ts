@@ -6,10 +6,12 @@ import { writeAuditLog } from "@/lib/audit/audit";
 import { claimSagaCommand, createCommandContext, retrySagaCommand } from "@/lib/commands/command-context";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { identifyAttachmentFile } from "./file-identification";
 
 const BUCKET = "business-attachments";
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 const SIGNED_DOWNLOAD_SECONDS = 60;
+const UPLOAD_CREDENTIAL_CONSERVATIVE_MS = 125 * 60 * 1_000;
 
 const allowedFiles = {
   pdf: { mime: "application/pdf", category: "Document" },
@@ -72,10 +74,13 @@ const attachmentRowSchema = z.object({
   object_path: z.string().min(1),
   original_filename: z.string().optional(),
   mime_type: z.string().optional(),
+  file_extension: z.string().optional(),
+  file_category: z.string().optional(),
   size_bytes: z.coerce.number().int().nonnegative().optional(),
   storage_status: z.enum(["Pending", "Available", "UploadFailed", "DeletePending", "DeleteFailed", "Deleted"]),
   data_level: z.enum(["Level1", "Level2", "Level3"]).optional(),
   version: z.coerce.number().int().positive().optional(),
+  upload_credential_expires_at: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 function rowFrom(data: unknown) {
@@ -129,11 +134,20 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
   const sagaClient = dependencies.serviceClient as unknown as NonNullable<Parameters<typeof claimSagaCommand>[1]>;
   const auditWriter = dependencies.auditWriter ?? writeAuditLog;
 
-  async function signedUpload(attachmentId: string, objectPath: string) {
+  async function signedUpload(ownerId: string, operationId: string, attachmentId: string, objectPath: string) {
+    const credentialExpiresAt = new Date(Date.now() + UPLOAD_CREDENTIAL_CONSERVATIVE_MS).toISOString();
+    const authorization = await dependencies.serviceClient.rpc("authorize_attachment_upload_credential", {
+      p_verified_user_id: ownerId,
+      p_operation_id: operationId,
+      p_attachment_id: attachmentId,
+      p_object_path: objectPath,
+      p_expires_at: credentialExpiresAt,
+    });
+    if (authorization.error) dataError(authorization.error, "Upload credential target is no longer eligible");
     const { data, error } = await bucket.createSignedUploadUrl(objectPath, { upsert: false });
     if (error) dataError(error, "Signed upload credential could not be created");
     const signed = z.object({ token: z.string().min(1) }).parse(data);
-    return { attachmentId, objectPath, uploadToken: signed.token };
+    return { attachmentId, objectPath, uploadToken: signed.token, credentialExpiresAt };
   }
 
   return {
@@ -145,7 +159,7 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
 
       if (receipt.status === "Completed") {
         const replay = z.object({ attachmentId: z.uuid(), objectPath: z.string().min(1) }).parse(receipt.resultReference);
-        return signedUpload(replay.attachmentId, replay.objectPath);
+        return signedUpload(context.user.sub, receipt.operationId, replay.attachmentId, replay.objectPath);
       }
       if (receipt.status === "Failed") throw new Error("Failed upload preparation requires a new request id");
 
@@ -164,7 +178,7 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
       });
       if (error) dataError(error, "Pending attachment could not be prepared");
       const attachment = rowFrom(data);
-      return signedUpload(attachment.id, attachment.object_path);
+      return signedUpload(context.user.sub, receipt.operationId, attachment.id, attachment.object_path);
     },
 
     async finalizeUpload(input: z.input<typeof finalizeInputSchema>, clientRequestId: string) {
@@ -174,7 +188,7 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
       if (receipt.status === "Completed") return receipt.resultReference;
       if (receipt.status === "Failed") throw new Error("Failed upload finalization requires a new upload");
 
-      const query = dependencies.serviceClient.from("attachments").select("id, object_path, mime_type, size_bytes, storage_status, data_level, version");
+      const query = dependencies.serviceClient.from("attachments").select("id, object_path, mime_type, file_extension, file_category, size_bytes, storage_status, data_level, version");
       const { data: metadata, error: metadataError } = await query.eq("owner_id", context.user.sub).eq("id", value.attachmentId).single();
       if (metadataError) dataError(metadataError, "Pending attachment metadata could not be read");
       const attachment = rowFrom(metadata);
@@ -187,12 +201,13 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
         dataError(objectError, "Uploaded Storage object could not be verified");
       }
       const bytes = Buffer.from(await object.arrayBuffer());
-      const actualMime = object.type || attachment.mime_type || "";
+      let identified: Awaited<ReturnType<typeof identifyAttachmentFile>>;
       try {
+        identified = await identifyAttachmentFile(bytes, attachment.file_extension ?? "");
         validateStoredObject({
           declaredMime: attachment.mime_type ?? "",
           declaredSize: attachment.size_bytes ?? -1,
-          actualMime,
+          actualMime: identified.mimeType,
           actualSize: bytes.byteLength,
         });
       } catch (verificationError) {
@@ -206,7 +221,7 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
       const { data, error } = await dependencies.serviceClient.rpc("finalize_attachment_upload", {
         p_verified_user_id: context.user.sub, p_receipt_id: receipt.receiptId,
         p_operation_id: receipt.operationId, p_attachment_id: attachment.id,
-        p_size_bytes: bytes.byteLength, p_mime_type: actualMime, p_checksum_sha256: checksum,
+        p_size_bytes: bytes.byteLength, p_mime_type: identified.mimeType, p_checksum_sha256: checksum,
       });
       if (error) dataError(error, "Attachment upload could not be finalized");
       return rowFrom(data);
@@ -226,6 +241,17 @@ export function createAttachmentActions(dependencies: AttachmentDependencies) {
       });
       if (error) dataError(error, "Attachment deletion could not be requested");
       const attachment = rowFrom(data);
+      if (attachment.storage_status === "Deleted") return { attachmentId: attachment.id, storageStatus: "Deleted" as const };
+      const credentialExpiry = attachment.upload_credential_expires_at
+        ? new Date(attachment.upload_credential_expires_at).getTime()
+        : 0;
+      if (credentialExpiry >= Date.now()) {
+        return {
+          attachmentId: attachment.id,
+          storageStatus: "DeletePending" as const,
+          retryAfter: attachment.upload_credential_expires_at,
+        };
+      }
       const { error: removeError } = await bucket.remove([attachment.object_path]);
       const directory = attachment.object_path.slice(0, attachment.object_path.lastIndexOf("/"));
       const filename = attachment.object_path.slice(attachment.object_path.lastIndexOf("/") + 1);

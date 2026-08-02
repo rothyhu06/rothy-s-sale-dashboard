@@ -2,9 +2,10 @@
 
 ## Status and commit
 
-Task 4 implementation and local verification are complete in this commit:
+Task 4 implementation and the independent-review hardening are complete across:
 
-- `feat: complete secure cross-cutting foundation`
+- `3d5c9d9 feat: complete secure cross-cutting foundation`
+- the follow-up security-hardening commit reported at handoff
 
 No Knowledge, Learning, Customer, Opportunity, or other business-domain table/page was added.
 
@@ -49,28 +50,42 @@ Foundation Finalize makes an Attachment Available but cannot create a fake busin
 
 `prepareUpload()` performs server validation, claims a Saga receipt, atomically creates
 Pending metadata plus AuditLog and receipt result, and then creates a signed upload token.
+Every token issue or replay first calls a service-only authorization RPC that verifies the
+Attachment is still Pending and records the conservative credential expiry. A completed
+Prepare receipt therefore cannot mint another token after finalization or deletion starts.
 The allowlist covers PDF, OOXML DOCX/XLSX/PPTX, PNG/JPEG/WebP, TXT/Markdown/CSV. Active
 HTML/SVG, executables, macros, disguised double extensions, MIME mismatches, and files
 above the 20 MiB application default are rejected.
 
-`finalizeUpload()` uses a separate idempotent receipt. The server reads the Owner row,
-downloads the private object, compares actual size and MIME against Pending metadata,
-calculates SHA-256, then atomically writes Available, AuditLog, and the completed receipt.
-Missing/mismatched objects become UploadFailed rather than Available.
+`finalizeUpload()` uses a separate idempotent receipt. The server reads the Owner row and
+downloads the private object. It identifies PDF and images from magic bytes, parses OOXML
+ZIP containers with entry-count, size, compression-ratio, traversal, macro, and content-
+type safeguards, and applies strict UTF-8/active-content checks to text. It then compares
+the identified extension/category and actual size against Pending metadata, calculates
+SHA-256, and atomically writes Available, AuditLog, and the completed receipt. Browser
+`Blob.type`, filename, and Pending MIME are never accepted as proof of content type.
+Missing, malformed, spoofed, or mismatched objects become UploadFailed rather than
+Available.
 
 Deletion is explicitly compensating, not a cross-system transaction:
 
 ```text
 Available / DeleteFailed
--> database DeletePending + tombstone + audit
+-> database DeletePending + tombstone + stable delete operation identity + audit
 -> Storage remove
 -> Storage list confirms absence
 -> database Deleted + storage_deleted_at + audit + completed receipt
 ```
 
-Failure after the database step becomes DeleteFailed with the original Receipt and
-operation identity available for an explicit retry. `deleted_at` and
-`storage_deleted_at` retain distinct semantics.
+Deletion is state-aware and idempotently recoverable. Replaying the original command from
+DeletePending or DeleteFailed retains the original operation identity and does not fail on
+the now-stale client version. If Storage is already absent, the command completes the
+database receipt without another physical mutation. Active upload credentials block
+physical deletion until their recorded conservative expiry, and the command returns a
+retry time. Failure after the database step becomes DeleteFailed with the original Receipt
+and operation identity available for an explicit retry. `deleted_at` and
+`storage_deleted_at` retain distinct semantics. Tombstoned metadata is excluded from
+normal owner RLS reads while service commands retain the access required for recovery.
 
 Available attachments receive signed download URLs for 60 seconds by default and never
 more than five minutes. Level 3 signed access appends a minimal AuditLog without filename,
@@ -87,6 +102,11 @@ List, Quote, Callout, Checklist, Code, Attachment Reference, and Image Reference
 It rejects unknown/HTML blocks, malformed UUID references, unknown schema versions, extra
 fields, and duplicate block IDs. `extractPlaintext()` validates first and deterministically
 derives search text; browsers do not submit authoritative plaintext.
+
+`validateAttachmentReferences()` is the shared server-only guard for future domain writes.
+It validates every Attachment/Image Reference against the real Owner row, Available and
+non-deleted lifecycle state, Image category where required, and returns the maximum
+effective Data Level so a containing document cannot under-classify referenced files.
 
 ## Design System additions
 
@@ -115,7 +135,10 @@ RED was observed before implementation:
 The GREEN cycle found and corrected real defects before the final gate: missing
 `service_role` metadata SELECT privilege, an ambiguous deletion RPC column, a missing
 physical-delete guard, unchecked Storage metadata mismatch, an ARIA-label misuse, and an
-insufficient Success Badge contrast.
+insufficient Success Badge contrast. Independent review then added failing regression
+tests for stale-version delete recovery, signed-upload replay, active-credential deletion,
+tombstone visibility, binary/container identification, server-only ContentBlock attachment
+validation, deterministic post-E2E pgTAP, and CommandDialog semantics before the fixes.
 
 ## Fresh verification
 
@@ -124,25 +147,30 @@ written to a local env file, or committed.
 
 ```text
 pnpm db:reset                                      PASS
-pnpm test:rls                                     PASS — 2 files / 99 tests
+pnpm test:rls                                     PASS — 2 files / 111 tests
 pnpm exec supabase db lint --local                PASS — no schema errors
 pnpm lint                                         PASS — 0 errors / 0 warnings
 pnpm typecheck                                    PASS
-pnpm test                                         PASS — 28 files / 100 tests
+pnpm test                                         PASS — 30 files / 110 tests
 pnpm build                                        PASS
 pnpm exec playwright test auth/design/cross      PASS — 11/11
+pnpm test:rls (again, without reset after E2E)    PASS — 2 files / 111 tests
 ```
 
-The real local Storage Playwright flow proves signed upload, denial of authenticated
-direct download, denial of public URL access, server verification/finalization, working
-60-second signed download, physical object deletion, and terminal metadata timestamps.
+The real local Storage Playwright flow proves signed upload, server-side rejection of a
+spoofed PDF, denial of authenticated direct download, denial of public URL access, server
+byte identification/finalization of a valid PDF, working 60-second signed download,
+credential-safe DeletePending behavior, and tombstone invisibility. The second pgTAP run
+proves the suite remains deterministic after E2E-created users, audit rows, receipts, and
+Storage metadata exist.
 
 ## Known limits and next dependencies
 
 - Relation targets and link creation are deliberately deferred to each real domain
   migration; empty scaffolds cannot be populated today.
-- Supabase controls the lifetime semantics of its signed upload token; the application
-  explicitly controls signed download lifetime (60 seconds default, five minutes max).
+- Supabase controls the signed-upload token lifetime. The application conservatively
+  records 125 minutes of credential validity and postpones physical deletion until expiry;
+  signed downloads remain 60 seconds by default and five minutes maximum.
 - Foundation exposes Tag creation but no Tag management page. Domain pages will compose
   Tag links after installing their real FKs.
 - Cleanup/retry scheduling for orphaned Pending/UploadFailed/DeleteFailed Storage objects
