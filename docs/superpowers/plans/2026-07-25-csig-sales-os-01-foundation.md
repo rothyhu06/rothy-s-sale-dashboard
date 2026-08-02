@@ -123,7 +123,12 @@ git commit -m "feat: enforce private supabase authentication"
 
 **Interfaces:**
 - Produces database types `data_level`, `command_status`, tables `command_receipts`, `audit_logs`.
-- Produces: `createCommandContext(commandType, clientRequestId)` returning `{ user, operationId }`.
+- Produces: `createCommandContext(commandType, clientRequestId)` returning the authenticated,
+  validated `{ user, commandType, clientRequestId }` preflight context without writing a Receipt.
+- Produces separate Saga-only `claimSagaCommand(...)` and `retrySagaCommand(...)` helpers that
+  preserve the Receipt and server-generated `operation_id` across resource retries. Pure database
+  commands compose the private claim, business writes, events, audit append, and completion inside
+  one domain RPC transaction.
 
 - [ ] **Step 1: Write pgTAP tests first**
 
