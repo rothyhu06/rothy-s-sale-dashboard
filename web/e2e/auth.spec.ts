@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { requireLocalSupabaseUrl } from "./support/local-supabase";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -26,14 +27,15 @@ test.describe("authenticated login boundary", () => {
 
   const email = `auth-e2e-${randomUUID()}@example.test`;
   const password = `Auth-e2e-${randomUUID()}!`;
+  let localSupabaseUrl: URL | undefined;
   let userId: string;
 
   test.beforeAll(async () => {
-    expect(supabaseUrl, "Start local Supabase and export NEXT_PUBLIC_SUPABASE_URL").toBeTruthy();
+    localSupabaseUrl = requireLocalSupabaseUrl(supabaseUrl);
     expect(supabaseAnonKey, "Export the local NEXT_PUBLIC_SUPABASE_ANON_KEY").toBeTruthy();
     expect(serviceRoleKey, "Export the local SUPABASE_SERVICE_ROLE_KEY for isolated test-user setup").toBeTruthy();
 
-    const admin = createClient(supabaseUrl!, serviceRoleKey!, {
+    const admin = createClient(localSupabaseUrl.href, serviceRoleKey!, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     const { data, error } = await admin.auth.admin.createUser({
@@ -48,9 +50,9 @@ test.describe("authenticated login boundary", () => {
   });
 
   test.afterAll(async () => {
-    if (!userId || !supabaseUrl || !serviceRoleKey) return;
+    if (!userId || !localSupabaseUrl || !serviceRoleKey) return;
 
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
+    const admin = createClient(localSupabaseUrl.href, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     const { error } = await admin.auth.admin.deleteUser(userId);
