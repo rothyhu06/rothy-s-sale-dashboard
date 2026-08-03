@@ -132,9 +132,7 @@ set local role service_role;
 select throws_ok(
   format($f$ select * from public.update_knowledge(
     '61000000-0000-4000-8000-000000000001', '63000000-0000-4000-8000-000000000004', %L,
-    99, 'Conflict title', 'General', 'Ready', 'Verified', 'Personal Note', null, null,
-    null, null, null, null, null, null, null, null,
-    '{"schemaVersion":1,"blocks":[]}'::jsonb, 'Level1', null, '{}', '{}', '[]'::jsonb
+    99, '{"title":"Conflict title"}'::jsonb
   ) $f$, (select id from created_knowledge)),
   '40001', 'knowledge version conflict',
   'Knowledge update reports an optimistic-lock conflict with a dedicated SQLSTATE'
@@ -150,13 +148,7 @@ create temporary table updated_knowledge as
 select * from public.update_knowledge(
   '61000000-0000-4000-8000-000000000001', '63000000-0000-4000-8000-000000000011',
   (select id from created_knowledge), 1,
-  '腾讯云 AI 助教更新', 'Tencent Cloud Product', 'Ready', 'Official', 'Official Doc', '白皮书', 'https://example.test/ai',
-  '更新摘要', '原理', '价值', '教学', '痛点', '表达', '问题', '竞品',
-  '{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph","text":"更新内容"},{"id":"a","type":"attachmentReference","attachmentId":"62000000-0000-4000-8000-000000000001","caption":"白皮书"}]}'::jsonb,
-  'Level1', null,
-  array['62000000-0000-4000-8000-000000000001']::uuid[],
-  array['62000000-0000-4000-8000-000000000003']::uuid[],
-  '[{"relatedKnowledgeId":"62000000-0000-4000-8000-000000000005","relationType":"Depends On"}]'::jsonb
+  '{"title":"腾讯云 AI 助教更新","summary":"更新摘要","contentBlocks":{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph","text":"更新内容"},{"id":"a","type":"attachmentReference","attachmentId":"62000000-0000-4000-8000-000000000001","caption":"白皮书"}]},"attachmentIds":["62000000-0000-4000-8000-000000000001"]}'::jsonb
 );
 reset role;
 set local role postgres;
@@ -172,10 +164,7 @@ set local role service_role;
 create temporary table replayed_update as
 select * from public.update_knowledge(
   '61000000-0000-4000-8000-000000000001', '63000000-0000-4000-8000-000000000011',
-  (select id from created_knowledge), 99,
-  'ignored', 'General', 'Draft', 'Hypothesis', 'Personal Note', null, null,
-  null, null, null, null, null, null, null, null,
-  '{"schemaVersion":1,"blocks":[]}'::jsonb, 'Level1', null, '{}', '{}', '[]'::jsonb
+  (select id from created_knowledge), 99, '{"title":"ignored"}'::jsonb
 );
 reset role;
 set local role postgres;
@@ -196,8 +185,8 @@ reset role;
 set local role postgres;
 select is((select owner_id from public.learning where id = (select id from created_learning)), '61000000-0000-4000-8000-000000000001'::uuid,
   'Learning owner comes only from the verified session');
-select is((select data_level from public.learning where id = (select id from created_learning)), 'Level2'::public.data_level,
-  'tag classification can only raise Learning effective data level');
+select is((select data_level from public.learning where id = (select id from created_learning)), 'Level3'::public.data_level,
+  'linked Knowledge and tag classification can only raise Learning effective data level');
 select is((select count(*) from public.learning_knowledge_links where learning_id = (select id from created_learning)), 1::bigint,
   'Learning create writes the explicit Knowledge link');
 select is((select count(*) from public.search_documents where source_type = 'Learning' and source_id = (select id from created_learning)), 1::bigint,

@@ -37,6 +37,7 @@ export const CompleteLearningInputSchema = z.object({
     masteryAfter: MasterySchema,
   }).strict()).max(100).default([]),
 }).strict();
+const deleteLearningInputSchema = z.object({ learningId: z.uuid() }).strict();
 
 const learningRowSchema = z.object({
   id: z.uuid(),
@@ -157,6 +158,26 @@ export function createLearningActions(dependencies: LearningDependencies) {
       });
       return rowFrom(data);
     },
+
+    async deleteLearning(
+      input: z.input<typeof deleteLearningInputSchema>,
+      expectedVersion: number,
+      clientRequestId: string,
+    ) {
+      const value = deleteLearningInputSchema.parse(input);
+      const version = z.number().int().positive().parse(expectedVersion);
+      const context = await createCommandContext("DeleteLearning", clientRequestId, dependencies.authClient);
+      const { data, error } = await dependencies.serviceClient.rpc("delete_learning", {
+        p_verified_user_id: context.user.sub,
+        p_client_request_id: context.clientRequestId,
+        p_learning_id: value.learningId,
+        p_expected_version: version,
+      });
+      if (error) throwDomainCommandError(error, {
+        entityType: "Learning", expectedVersion: version, fallback: "Learning could not be deleted",
+      });
+      return rowFrom(data);
+    },
   };
 }
 
@@ -181,4 +202,12 @@ export async function completeLearning(
   clientRequestId: string,
 ) {
   return (await defaultActions()).completeLearning(input, expectedVersion, clientRequestId);
+}
+
+export async function deleteLearning(
+  input: z.input<typeof deleteLearningInputSchema>,
+  expectedVersion: number,
+  clientRequestId: string,
+) {
+  return (await defaultActions()).deleteLearning(input, expectedVersion, clientRequestId);
 }

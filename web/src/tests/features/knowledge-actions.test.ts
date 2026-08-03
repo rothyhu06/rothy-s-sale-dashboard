@@ -63,7 +63,7 @@ describe("Knowledge domain commands", () => {
     }));
   });
 
-  it("injects the verified owner, validates attachments, and leaves plaintext derivation to PostgreSQL", async () => {
+  it("injects the verified owner and leaves attachment state, level, and plaintext authority to PostgreSQL", async () => {
     const client = serviceClient();
     const attachmentRepository = {
       findByIds: vi.fn().mockResolvedValue([{
@@ -83,12 +83,12 @@ describe("Knowledge domain commands", () => {
 
     const result = await actions.createKnowledge(baseInput, clientRequestId);
 
-    expect(attachmentRepository.findByIds).toHaveBeenCalledWith(ownerId, [attachmentId]);
+    expect(attachmentRepository.findByIds).not.toHaveBeenCalled();
     expect(client.rpc).toHaveBeenCalledWith("create_knowledge", expect.objectContaining({
       p_verified_user_id: ownerId,
       p_client_request_id: clientRequestId,
       p_content_blocks: baseInput.contentBlocks,
-      p_data_level: "Level3",
+      p_data_level: "Level1",
       p_attachment_ids: [attachmentId],
       p_tag_ids: baseInput.tagIds,
       p_relations: baseInput.relations,
@@ -96,6 +96,61 @@ describe("Knowledge domain commands", () => {
     expect(client.rpc.mock.calls[0]?.[1]).not.toHaveProperty("p_content_plaintext");
     expect(client.rpc.mock.calls[0]?.[1]).not.toHaveProperty("owner_id");
     expect(result).toMatchObject({ id: knowledgeId, contentPlaintext: "产品白皮书", operationId });
+  });
+
+  it("always reaches the replay-first RPC even when an attachment would now fail optional UX validation", async () => {
+    const client = serviceClient();
+    const attachmentRepository = { findByIds: vi.fn().mockRejectedValue(new Error("now unavailable")) };
+    const actions = createKnowledgeActions({ authClient: {} as never, serviceClient: client, attachmentRepository });
+
+    await expect(actions.createKnowledge(baseInput, clientRequestId)).resolves.toMatchObject({
+      id: knowledgeId,
+      operationId,
+    });
+    expect(attachmentRepository.findByIds).not.toHaveBeenCalled();
+    expect(client.rpc).toHaveBeenCalledOnce();
+  });
+
+  it("sends a presence-preserving patch for title-only updates", async () => {
+    const client = serviceClient();
+    const actions = createKnowledgeActions({
+      authClient: {} as never,
+      serviceClient: client,
+      attachmentRepository: { findByIds: vi.fn() },
+    });
+
+    await actions.updateKnowledge({ knowledgeId, title: "仅修改标题" }, 2, clientRequestId);
+
+    expect(client.rpc).toHaveBeenCalledWith("update_knowledge", {
+      p_verified_user_id: ownerId,
+      p_client_request_id: clientRequestId,
+      p_knowledge_id: knowledgeId,
+      p_expected_version: 2,
+      p_patch: { title: "仅修改标题" },
+    });
+  });
+
+  it("preserves explicit empty arrays and nulls in an intentional clear patch", async () => {
+    const client = serviceClient();
+    const actions = createKnowledgeActions({
+      authClient: {} as never,
+      serviceClient: client,
+      attachmentRepository: { findByIds: vi.fn() },
+    });
+    const contentBlocks = { schemaVersion: 1 as const, blocks: [] };
+
+    await actions.updateKnowledge({
+      knowledgeId,
+      sourceName: null,
+      contentBlocks,
+      attachmentIds: [],
+      tagIds: [],
+      relations: [],
+    }, 3, clientRequestId);
+
+    expect(client.rpc).toHaveBeenCalledWith("update_knowledge", expect.objectContaining({
+      p_patch: { sourceName: null, contentBlocks, attachmentIds: [], tagIds: [], relations: [] },
+    }));
   });
 
   it("maps PostgreSQL optimistic-lock conflicts to a safe typed 409 error", async () => {
@@ -106,11 +161,7 @@ describe("Knowledge domain commands", () => {
       attachmentRepository: { findByIds: vi.fn().mockResolvedValue([]) },
     });
 
-    await expect(actions.updateKnowledge({
-      ...baseInput,
-      knowledgeId,
-      contentBlocks: { schemaVersion: 1, blocks: [] },
-    }, 7, clientRequestId)).rejects.toMatchObject({
+    await expect(actions.updateKnowledge({ knowledgeId, title: "冲突" }, 7, clientRequestId)).rejects.toMatchObject({
       name: "VersionConflictError",
       status: 409,
       entityType: "Knowledge",
@@ -120,7 +171,26 @@ describe("Knowledge domain commands", () => {
       p_verified_user_id: ownerId,
       p_client_request_id: clientRequestId,
       p_expected_version: 7,
+      p_patch: { title: "冲突" },
     }));
+  });
+
+  it("soft-deletes Knowledge through an optimistic replay-safe domain command", async () => {
+    const client = serviceClient();
+    const actions = createKnowledgeActions({
+      authClient: {} as never,
+      serviceClient: client,
+      attachmentRepository: { findByIds: vi.fn() },
+    });
+
+    await actions.deleteKnowledge({ knowledgeId }, 4, clientRequestId);
+
+    expect(client.rpc).toHaveBeenCalledWith("delete_knowledge", {
+      p_verified_user_id: ownerId,
+      p_client_request_id: clientRequestId,
+      p_knowledge_id: knowledgeId,
+      p_expected_version: 4,
+    });
   });
 });
 

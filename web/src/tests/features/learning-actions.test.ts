@@ -95,22 +95,47 @@ describe("Learning domain commands", () => {
       p_learning_id: learningId,
     }));
   });
+
+  it("soft-deletes Learning through an optimistic replay-safe domain command", async () => {
+    const client = serviceClient();
+    const actions = createLearningActions({ authClient: {} as never, serviceClient: client });
+
+    await actions.deleteLearning({ learningId }, 5, clientRequestId);
+
+    expect(client.rpc).toHaveBeenCalledWith("delete_learning", {
+      p_verified_user_id: ownerId,
+      p_client_request_id: clientRequestId,
+      p_learning_id: learningId,
+      p_expected_version: 5,
+    });
+  });
 });
 
 describe("Continue Learning", () => {
-  it("reads current Learning facts through RLS rather than browser state", async () => {
-    const query = { in: vi.fn(), order: vi.fn(), limit: vi.fn() };
-    query.in.mockReturnValue(query);
-    query.order.mockReturnValue(query);
-    query.limit.mockResolvedValue({ data: [], error: null });
-    const client = { from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue(query) }) };
+  it("uses the RLS fact query with deterministic priority and returns chain fields", async () => {
+    const client = { rpc: vi.fn().mockResolvedValue({ data: [{
+      id: learningId,
+      title: "继续学习",
+      learning_type: "Review",
+      status: "In Progress",
+      objective: "巩固",
+      started_at: "2026-08-04T09:00:00.000Z",
+      completed_at: null,
+      learning_outcome: null,
+      parent_learning_id: parentLearningId,
+      updated_at: "2026-08-04T10:00:00.000Z",
+      version: 2,
+    }], error: null }) };
     const queries = createLearningQueries({ client: client as never });
 
-    await queries.getContinueLearning(4);
+    const result = await queries.getContinueLearning(4);
 
-    expect(client.from).toHaveBeenCalledWith("learning");
-    expect(query.in).toHaveBeenCalledWith("status", ["In Progress", "Planned"]);
-    expect(query.order).toHaveBeenCalledWith("updated_at", { ascending: false });
-    expect(query.limit).toHaveBeenCalledWith(4);
+    expect(client.rpc).toHaveBeenCalledWith("get_continue_learning", { p_limit: 4 });
+    expect(result[0]).toMatchObject({
+      id: learningId,
+      parentLearningId,
+      status: "In Progress",
+      learningOutcome: null,
+    });
   });
 });

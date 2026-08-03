@@ -11,22 +11,20 @@ const continueLearningRowSchema = z.object({
   status: z.enum(["Planned", "In Progress"]),
   objective: z.string().nullable(),
   started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  learning_outcome: z.enum(["Passed", "Needs Practice", "Blocked", "Applied", "Shared"]).nullable(),
+  parent_learning_id: z.uuid().nullable(),
   updated_at: z.string(),
   version: z.coerce.number().int().positive(),
 });
 
-type LearningQueryClient = Pick<SupabaseClient, "from">;
+type LearningQueryClient = Pick<SupabaseClient, "rpc">;
 
 export function createLearningQueries(dependencies: { client: LearningQueryClient }) {
   return {
     async getContinueLearning(limit = 4) {
       const take = z.number().int().min(1).max(20).parse(limit);
-      const { data, error } = await dependencies.client
-        .from("learning")
-        .select("id, title, learning_type, status, objective, started_at, updated_at, version")
-        .in("status", ["In Progress", "Planned"])
-        .order("updated_at", { ascending: false })
-        .limit(take);
+      const { data, error } = await dependencies.client.rpc("get_continue_learning", { p_limit: take });
       if (error) throw new Error("Continue Learning could not be loaded", { cause: error });
       return z.array(continueLearningRowSchema).parse(data ?? []).map((row) => ({
         id: row.id,
@@ -35,6 +33,9 @@ export function createLearningQueries(dependencies: { client: LearningQueryClien
         status: row.status,
         objective: row.objective,
         startedAt: row.started_at,
+        completedAt: row.completed_at,
+        learningOutcome: row.learning_outcome,
+        parentLearningId: row.parent_learning_id,
         updatedAt: row.updated_at,
         version: row.version,
       }));
