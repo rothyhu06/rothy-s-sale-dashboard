@@ -47,7 +47,20 @@ describe("Knowledge and Learning schema contracts", () => {
     expect(LearningOutcomeSchema.options).toEqual(["Passed", "Needs Practice", "Blocked", "Applied", "Shared"]);
     expect(MasterySchema.options).toEqual(["Aware", "Understand", "Explain", "Apply", "Teach"]);
     expect(CreateLearningInputSchema.parse({
-      title: "复习产品定位", learningType: "Review", status: "Completed", learningOutcome: "Applied",
+      title: "学习产品定位", learningType: "Study", status: "Completed", learningOutcome: "Applied",
     }).parentLearningId).toBeUndefined();
+  });
+
+  it("requires a parent only for Review learning-chain children", () => {
+    const parentLearningId = "7738b1f3-760a-49b0-bb86-f7f9ed51784c";
+    expect(() => CreateLearningInputSchema.parse({
+      title: "无来源复习", learningType: "Review", status: "Planned",
+    })).toThrow();
+    expect(() => CreateLearningInputSchema.parse({
+      title: "伪装成子节点的练习", learningType: "Practice", status: "Planned", parentLearningId,
+    })).toThrow();
+    expect(CreateLearningInputSchema.parse({
+      title: "有效复习", learningType: "Review", status: "Planned", parentLearningId,
+    }).parentLearningId).toBe(parentLearningId);
   });
 });

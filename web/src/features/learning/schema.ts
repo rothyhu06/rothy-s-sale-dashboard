@@ -19,6 +19,14 @@ export const CreateLearningInputSchema = z.object({
   parentLearningId: z.uuid().nullable().optional(),
   dataLevel: z.enum(["Level1", "Level2", "Level3"]).default("Level2"),
   classificationReason: z.string().trim().max(1_000).nullable().optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const hasParent = value.parentLearningId != null;
+  if (value.learningType === "Review" && !hasParent) {
+    context.addIssue({ code: "custom", path: ["parentLearningId"], message: "Review requires a parent Learning" });
+  }
+  if (value.learningType !== "Review" && hasParent) {
+    context.addIssue({ code: "custom", path: ["parentLearningId"], message: "Only Review can reference a parent Learning" });
+  }
+});
 
 export type CreateLearningInput = z.infer<typeof CreateLearningInputSchema>;

@@ -13,6 +13,126 @@ create type public.learning_status as enum ('Planned', 'In Progress', 'Completed
 create type public.learning_outcome as enum ('Passed', 'Needs Practice', 'Blocked', 'Applied', 'Shared');
 create type public.mastery as enum ('Aware', 'Understand', 'Explain', 'Apply', 'Teach');
 
+create function private.content_block_document_v1_is_valid(p_document jsonb)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  block jsonb;
+  item jsonb;
+begin
+  if jsonb_typeof(p_document) is distinct from 'object'
+    or jsonb_typeof(p_document -> 'schemaVersion') is distinct from 'number'
+    or p_document -> 'schemaVersion' <> '1'::jsonb
+    or jsonb_typeof(p_document -> 'blocks') is distinct from 'array'
+    or jsonb_array_length(p_document -> 'blocks') > 1000 then
+    return false;
+  end if;
+
+  for block in select value from jsonb_array_elements(p_document -> 'blocks') loop
+    if jsonb_typeof(block) is distinct from 'object'
+      or jsonb_typeof(block -> 'id') is distinct from 'string'
+      or length(btrim(block ->> 'id')) not between 1 and 100
+      or jsonb_typeof(block -> 'type') is distinct from 'string' then
+      return false;
+    end if;
+
+    case block ->> 'type'
+      when 'paragraph' then
+        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000 then return false; end if;
+      when 'quote' then
+        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+          or (block ? 'citation' and (jsonb_typeof(block -> 'citation') is distinct from 'string' or length(btrim(block ->> 'citation')) > 500)) then return false; end if;
+      when 'callout' then
+        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+          or block ->> 'tone' not in ('info', 'success', 'warning') then return false; end if;
+      when 'heading' then
+        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+          or jsonb_typeof(block -> 'level') is distinct from 'number'
+          or block ->> 'level' not in ('1', '2', '3') then return false; end if;
+      when 'list' then
+        if block ->> 'style' not in ('ordered', 'unordered') or jsonb_typeof(block -> 'items') is distinct from 'array'
+          or jsonb_array_length(block -> 'items') > 500 then return false; end if;
+        if exists (select 1 from jsonb_array_elements(block -> 'items') as list_item(value)
+          where jsonb_typeof(value) is distinct from 'string' or length(value #>> '{}') > 100000) then return false; end if;
+      when 'checklist' then
+        if jsonb_typeof(block -> 'items') is distinct from 'array' or jsonb_array_length(block -> 'items') > 500 then return false; end if;
+        for item in select value from jsonb_array_elements(block -> 'items') loop
+          if jsonb_typeof(item) is distinct from 'object'
+            or jsonb_typeof(item -> 'id') is distinct from 'string'
+            or length(btrim(item ->> 'id')) not between 1 and 100
+            or jsonb_typeof(item -> 'text') is distinct from 'string'
+            or length(item ->> 'text') > 100000
+            or jsonb_typeof(item -> 'checked') is distinct from 'boolean' then return false; end if;
+        end loop;
+      when 'code' then
+        if jsonb_typeof(block -> 'code') is distinct from 'string' or length(block ->> 'code') > 100000
+          or (block ? 'language' and (jsonb_typeof(block -> 'language') is distinct from 'string' or length(btrim(block ->> 'language')) > 50)) then return false; end if;
+      when 'attachmentReference', 'imageReference' then
+        if jsonb_typeof(block -> 'attachmentId') is distinct from 'string'
+          or block ->> 'attachmentId' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          or (block ? 'caption' and (jsonb_typeof(block -> 'caption') is distinct from 'string' or length(btrim(block ->> 'caption')) > 500)) then return false; end if;
+      else return false;
+    end case;
+  end loop;
+
+  if exists (
+    select 1 from jsonb_array_elements(p_document -> 'blocks') as block(value)
+    group by value ->> 'id' having count(*) > 1
+  ) then return false; end if;
+  return true;
+end;
+$$;
+
+create function private.extract_content_block_plaintext(p_document jsonb)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select coalesce(
+    string_agg(btrim(part.value), E'\n' order by block.block_ordinality, part.part_ordinality)
+      filter (where nullif(btrim(part.value), '') is not null),
+    ''
+  )
+  from jsonb_array_elements(p_document -> 'blocks') with ordinality as block(value, block_ordinality)
+  cross join lateral jsonb_array_elements_text(
+    case block.value ->> 'type'
+      when 'paragraph' then jsonb_build_array(block.value ->> 'text')
+      when 'heading' then jsonb_build_array(block.value ->> 'text')
+      when 'list' then block.value -> 'items'
+      when 'quote' then jsonb_build_array(block.value ->> 'text', block.value ->> 'citation')
+      when 'callout' then jsonb_build_array(block.value ->> 'text')
+      when 'checklist' then coalesce((
+        select jsonb_agg(item.value ->> 'text' order by item.item_ordinality)
+        from jsonb_array_elements(block.value -> 'items') with ordinality as item(value, item_ordinality)
+      ), '[]'::jsonb)
+      when 'code' then jsonb_build_array(block.value ->> 'code')
+      when 'attachmentReference' then jsonb_build_array(block.value ->> 'caption')
+      when 'imageReference' then jsonb_build_array(block.value ->> 'caption')
+      else '[]'::jsonb
+    end
+  ) with ordinality as part(value, part_ordinality);
+$$;
+
+create function public.derive_knowledge_content_plaintext()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not private.content_block_document_v1_is_valid(new.content_blocks) then
+    raise exception using errcode = '23514', message = 'invalid ContentBlockDocument V1';
+  end if;
+  new.content_schema_version := 1;
+  new.content_plaintext := private.extract_content_block_plaintext(new.content_blocks);
+  return new;
+end;
+$$;
+
 create table public.knowledge (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null default auth.uid() references auth.users(id),
@@ -43,9 +163,7 @@ create table public.knowledge (
   deleted_by uuid references auth.users(id),
   constraint knowledge_owner_identity unique (owner_id, id),
   constraint knowledge_content_block_v1 check (
-    jsonb_typeof(content_blocks) = 'object'
-    and content_blocks ->> 'schemaVersion' = '1'
-    and jsonb_typeof(content_blocks -> 'blocks') = 'array'
+    private.content_block_document_v1_is_valid(content_blocks)
   )
 );
 
@@ -78,6 +196,10 @@ create table public.learning (
   constraint learning_owner_parent_fk foreign key (owner_id, parent_learning_id)
     references public.learning(owner_id, id),
   constraint learning_parent_is_not_self check (parent_learning_id is null or parent_learning_id <> id),
+  constraint learning_review_chain_consistent check (
+    (learning_type = 'Review' and parent_learning_id is not null)
+    or (learning_type <> 'Review' and parent_learning_id is null)
+  ),
   constraint learning_completion_time_order check (completed_at is null or started_at is null or completed_at >= started_at)
 );
 
@@ -171,6 +293,9 @@ create table public.search_documents (
 create trigger knowledge_guard_mutation
 before update on public.knowledge
 for each row execute function public.guard_mutable_entity();
+create trigger knowledge_derive_content_plaintext
+before insert or update of content_blocks, content_schema_version, content_plaintext on public.knowledge
+for each row execute function public.derive_knowledge_content_plaintext();
 create trigger learning_guard_mutation
 before update on public.learning
 for each row execute function public.guard_mutable_entity();

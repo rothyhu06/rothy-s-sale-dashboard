@@ -22,6 +22,14 @@ select ok(exists (select 1 from pg_constraint where conname = 'tag_links_owner_l
 select col_is_pk('public', 'search_documents', array['id'], 'SearchDocument has a projection-local identity');
 select col_not_null('public', 'knowledge', 'content_blocks', 'Knowledge always contains a ContentBlock envelope');
 select col_not_null('public', 'knowledge', 'content_plaintext', 'Knowledge stores server-derived plaintext');
+select is(array_to_string(enum_range(null::public.knowledge_status)::text[], ','), 'Draft,Learning,Ready,Archived', 'Knowledge status labels are exact');
+select is(array_to_string(enum_range(null::public.knowledge_type)::text[], ','), 'Tencent Cloud Product,AI Technology,Education Industry,Sales Method,Solution Reference,Case Reference,General', 'Knowledge type labels are exact');
+select is(array_to_string(enum_range(null::public.knowledge_confidence)::text[], ','), 'Official,Verified,Observed,Hypothesis', 'Knowledge confidence labels are exact');
+select is(array_to_string(enum_range(null::public.knowledge_source_type)::text[], ','), 'Official Doc,Training,Meeting,Customer,Book,Website,Internal Material,AI Generated,Personal Note', 'Knowledge source labels are exact');
+select is(array_to_string(enum_range(null::public.learning_type)::text[], ','), 'Study,Review,Practice,Course,Product Training,Case Analysis', 'Learning type labels are exact');
+select is(array_to_string(enum_range(null::public.learning_status)::text[], ','), 'Planned,In Progress,Completed,Cancelled', 'Learning status labels are exact');
+select is(array_to_string(enum_range(null::public.learning_outcome)::text[], ','), 'Passed,Needs Practice,Blocked,Applied,Shared', 'Learning outcome labels are exact');
+select is(array_to_string(enum_range(null::public.mastery)::text[], ','), 'Aware,Understand,Explain,Apply,Teach', 'Mastery labels are exact');
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at)
 values
@@ -114,10 +122,163 @@ select throws_ok(
 );
 reset role;
 
+set local role service_role;
+insert into public.knowledge (
+  id, owner_id, title, knowledge_type, status, confidence, source_type, content_blocks, content_plaintext
+) values (
+  '54000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001',
+  '全文抽取', 'General', 'Ready', 'Verified', 'Internal Material',
+  '{"schemaVersion":1,"blocks":[
+    {"id":"p","type":"paragraph","text":" Paragraph "},
+    {"id":"h","type":"heading","level":2,"text":" Heading "},
+    {"id":"l","type":"list","style":"unordered","items":[" one "," two "]},
+    {"id":"q","type":"quote","text":" Quote ","citation":" Cite "},
+    {"id":"c","type":"callout","tone":"info","text":" Callout "},
+    {"id":"k","type":"checklist","items":[{"id":"ki","text":" Check ","checked":true}]},
+    {"id":"code","type":"code","language":"sql","code":" select 1 "},
+    {"id":"a","type":"attachmentReference","attachmentId":"7738b1f3-760a-49b0-bb86-f7f9ed51784c","caption":" Attachment "},
+    {"id":"i","type":"imageReference","attachmentId":"60d74e72-8209-42df-ab94-eace52caf1b3","caption":" Image "}
+  ]}'::jsonb,
+  'forged plaintext'
+), (
+  '54000000-0000-4000-8000-000000000002', '51000000-0000-4000-8000-000000000001',
+  '省略明文', 'General', 'Ready', 'Verified', 'Internal Material',
+  '{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph","text":"仅来自区块"}]}'::jsonb,
+  default
+);
+select is(
+  (select content_plaintext from public.knowledge where id = '54000000-0000-4000-8000-000000000001'),
+  E'Paragraph\nHeading\none\ntwo\nQuote\nCite\nCallout\nCheck\nselect 1\nAttachment\nImage',
+  'every ContentBlock V1 kind derives plaintext instead of persisting forged caller input'
+);
+select is(
+  (select content_plaintext from public.knowledge where id = '54000000-0000-4000-8000-000000000002'),
+  '仅来自区块',
+  'omitted plaintext is derived from authoritative blocks'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '不支持区块', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"html","type":"html","html":"<script/>"}]}'::jsonb) $$,
+  '23514', null,
+  'unsupported ContentBlock envelopes are rejected by the database'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '格式错误区块', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph"}]}'::jsonb) $$,
+  '23514', null,
+  'malformed ContentBlock envelopes are rejected by the database'
+);
+insert into public.learning (id, owner_id, title, learning_type, status)
+values (
+  '54000000-0000-4000-8000-000000000003', '51000000-0000-4000-8000-000000000001', '学习根节点', 'Study', 'Completed'
+), (
+  '54000000-0000-4000-8000-000000000004', '51000000-0000-4000-8000-000000000002', '其他用户学习', 'Study', 'Completed'
+);
+select throws_ok(
+  $$ insert into public.learning (owner_id, title, learning_type, status)
+     values ('51000000-0000-4000-8000-000000000001', '无父复习', 'Review', 'Planned') $$,
+  '23514', null,
+  'Review root without a parent is rejected'
+);
+select lives_ok(
+  $$ insert into public.learning (owner_id, title, learning_type, status, parent_learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '有效复习子节点', 'Review', 'Planned', '54000000-0000-4000-8000-000000000003') $$,
+  'same-owner Review child is accepted'
+);
+select throws_ok(
+  $$ insert into public.learning (owner_id, title, learning_type, status, parent_learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '伪装链子节点', 'Practice', 'Planned', '54000000-0000-4000-8000-000000000003') $$,
+  '23514', null,
+  'non-Review Learning cannot masquerade as a chain child'
+);
+reset role;
+set local role postgres;
+insert into public.attachments (
+  id, owner_id, original_filename, safe_filename, object_path, mime_type, file_extension,
+  size_bytes, checksum_sha256, file_category, storage_status, data_level, uploaded_at, prepared_operation_id
+) values (
+  '54000000-0000-4000-8000-000000000005', '51000000-0000-4000-8000-000000000001',
+  'knowledge.pdf', 'knowledge.pdf', '51000000-0000-4000-8000-000000000001/54000000-0000-4000-8000-000000000005/knowledge.pdf',
+  'application/pdf', 'pdf', 1, repeat('a', 64), 'Document', 'Available', 'Level1', now(), '54000000-0000-4000-8000-000000000006'
+);
+insert into public.tags (id, owner_id, name, normalized_name, data_level)
+values ('54000000-0000-4000-8000-000000000007', '51000000-0000-4000-8000-000000000001', '知识', '知识', 'Level1');
+select throws_ok(
+  $$ insert into public.attachment_links (owner_id, attachment_id, knowledge_id, learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000003') $$,
+  '23514', null,
+  'attachment links reject multiple Knowledge/Learning targets'
+);
+select throws_ok(
+  $$ insert into public.attachment_links (owner_id, attachment_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005') $$,
+  '23514', null,
+  'attachment links reject missing Knowledge/Learning targets'
+);
+insert into public.attachment_links (owner_id, attachment_id, knowledge_id)
+values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000001');
+select throws_ok(
+  $$ insert into public.attachment_links (owner_id, attachment_id, knowledge_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000001') $$,
+  '23505', null,
+  'attachment Knowledge partial unique index rejects duplicates'
+);
+insert into public.attachment_links (owner_id, attachment_id, learning_id)
+values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000003');
+select throws_ok(
+  $$ insert into public.attachment_links (owner_id, attachment_id, learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000003') $$,
+  '23505', null,
+  'attachment Learning partial unique index rejects duplicates'
+);
+select throws_ok(
+  $$ insert into public.attachment_links (owner_id, attachment_id, learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000005', '54000000-0000-4000-8000-000000000004') $$,
+  '23503', null,
+  'attachment Learning target composite FK rejects cross-owner rows'
+);
+select throws_ok(
+  $$ insert into public.tag_links (owner_id, tag_id, knowledge_id, learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '54000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000003') $$,
+  '23514', null,
+  'tag links reject multiple Knowledge/Learning targets'
+);
+select throws_ok(
+  $$ insert into public.tag_links (owner_id, tag_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007') $$,
+  '23514', null,
+  'tag links reject missing Knowledge/Learning targets'
+);
+insert into public.tag_links (owner_id, tag_id, learning_id)
+values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '54000000-0000-4000-8000-000000000003');
+select throws_ok(
+  $$ insert into public.tag_links (owner_id, tag_id, learning_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '54000000-0000-4000-8000-000000000003') $$,
+  '23505', null,
+  'tag Learning partial unique index rejects duplicates'
+);
+insert into public.tag_links (owner_id, tag_id, knowledge_id)
+values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '54000000-0000-4000-8000-000000000001');
+select throws_ok(
+  $$ insert into public.tag_links (owner_id, tag_id, knowledge_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '54000000-0000-4000-8000-000000000001') $$,
+  '23505', null,
+  'tag Knowledge partial unique index rejects duplicates'
+);
+select throws_ok(
+  $$ insert into public.tag_links (owner_id, tag_id, knowledge_id)
+     values ('51000000-0000-4000-8000-000000000001', '54000000-0000-4000-8000-000000000007', '52000000-0000-4000-8000-000000000001') $$,
+  '23503', null,
+  'tag Knowledge target composite FK rejects cross-owner rows'
+);
+reset role;
+
 select set_config('request.jwt.claims', '{"sub":"51000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 set local role authenticated;
 select is((select count(*) from public.knowledge), 1::bigint, 'second owner only reads its own active Knowledge');
-select is((select count(*) from public.learning), 0::bigint, 'second owner cannot read first owner Learning');
+select is((select count(*) from public.learning), 1::bigint, 'second owner only reads its own Learning');
 select is((select count(*) from public.search_documents), 0::bigint, 'second owner cannot read first owner SearchDocuments');
 select results_eq(
   $$ update public.knowledge set summary = 'cross-owner write'
