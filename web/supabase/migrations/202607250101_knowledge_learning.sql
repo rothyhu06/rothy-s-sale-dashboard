@@ -13,6 +13,18 @@ create type public.learning_status as enum ('Planned', 'In Progress', 'Completed
 create type public.learning_outcome as enum ('Passed', 'Needs Practice', 'Blocked', 'Applied', 'Shared');
 create type public.mastery as enum ('Aware', 'Understand', 'Explain', 'Apply', 'Teach');
 
+create function private.jsonb_has_only_keys(p_value jsonb, p_allowed_keys text[])
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case when jsonb_typeof(p_value) = 'object' then not exists (
+    select 1 from jsonb_object_keys(p_value) as key(name)
+    where not (name = any (p_allowed_keys))
+  ) else false end;
+$$;
+
 create function private.content_block_document_v1_is_valid(p_document jsonb)
 returns boolean
 language plpgsql
@@ -24,6 +36,7 @@ declare
   item jsonb;
 begin
   if jsonb_typeof(p_document) is distinct from 'object'
+    or not private.jsonb_has_only_keys(p_document, array['schemaVersion', 'blocks'])
     or jsonb_typeof(p_document -> 'schemaVersion') is distinct from 'number'
     or p_document -> 'schemaVersion' <> '1'::jsonb
     or jsonb_typeof(p_document -> 'blocks') is distinct from 'array'
@@ -41,26 +54,36 @@ begin
 
     case block ->> 'type'
       when 'paragraph' then
-        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000 then return false; end if;
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'text'])
+          or jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000 then return false; end if;
       when 'quote' then
-        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'text', 'citation'])
+          or jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
           or (block ? 'citation' and (jsonb_typeof(block -> 'citation') is distinct from 'string' or length(btrim(block ->> 'citation')) > 500)) then return false; end if;
       when 'callout' then
-        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
-          or block ->> 'tone' not in ('info', 'success', 'warning') then return false; end if;
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'tone', 'text'])
+          or jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+          or jsonb_typeof(block -> 'tone') is distinct from 'string' then return false; end if;
+        if block ->> 'tone' not in ('info', 'success', 'warning') then return false; end if;
       when 'heading' then
-        if jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'level', 'text'])
+          or jsonb_typeof(block -> 'text') is distinct from 'string' or length(block ->> 'text') > 100000
           or jsonb_typeof(block -> 'level') is distinct from 'number'
           or block ->> 'level' not in ('1', '2', '3') then return false; end if;
       when 'list' then
-        if block ->> 'style' not in ('ordered', 'unordered') or jsonb_typeof(block -> 'items') is distinct from 'array'
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'style', 'items'])
+          or jsonb_typeof(block -> 'style') is distinct from 'string'
+          or jsonb_typeof(block -> 'items') is distinct from 'array'
           or jsonb_array_length(block -> 'items') > 500 then return false; end if;
+        if block ->> 'style' not in ('ordered', 'unordered') then return false; end if;
         if exists (select 1 from jsonb_array_elements(block -> 'items') as list_item(value)
           where jsonb_typeof(value) is distinct from 'string' or length(value #>> '{}') > 100000) then return false; end if;
       when 'checklist' then
-        if jsonb_typeof(block -> 'items') is distinct from 'array' or jsonb_array_length(block -> 'items') > 500 then return false; end if;
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'items'])
+          or jsonb_typeof(block -> 'items') is distinct from 'array' or jsonb_array_length(block -> 'items') > 500 then return false; end if;
         for item in select value from jsonb_array_elements(block -> 'items') loop
-          if jsonb_typeof(item) is distinct from 'object'
+          if not private.jsonb_has_only_keys(item, array['id', 'text', 'checked'])
+            or jsonb_typeof(item) is distinct from 'object'
             or jsonb_typeof(item -> 'id') is distinct from 'string'
             or length(btrim(item ->> 'id')) not between 1 and 100
             or jsonb_typeof(item -> 'text') is distinct from 'string'
@@ -68,10 +91,12 @@ begin
             or jsonb_typeof(item -> 'checked') is distinct from 'boolean' then return false; end if;
         end loop;
       when 'code' then
-        if jsonb_typeof(block -> 'code') is distinct from 'string' or length(block ->> 'code') > 100000
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'language', 'code'])
+          or jsonb_typeof(block -> 'code') is distinct from 'string' or length(block ->> 'code') > 100000
           or (block ? 'language' and (jsonb_typeof(block -> 'language') is distinct from 'string' or length(btrim(block ->> 'language')) > 50)) then return false; end if;
       when 'attachmentReference', 'imageReference' then
-        if jsonb_typeof(block -> 'attachmentId') is distinct from 'string'
+        if not private.jsonb_has_only_keys(block, array['id', 'type', 'attachmentId', 'caption'])
+          or jsonb_typeof(block -> 'attachmentId') is distinct from 'string'
           or block ->> 'attachmentId' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
           or (block ? 'caption' and (jsonb_typeof(block -> 'caption') is distinct from 'string' or length(btrim(block ->> 'caption')) > 500)) then return false; end if;
       else return false;
@@ -83,6 +108,41 @@ begin
     group by value ->> 'id' having count(*) > 1
   ) then return false; end if;
   return true;
+end;
+$$;
+
+create function private.normalize_content_block_document_v1(p_document jsonb)
+returns jsonb
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  block jsonb;
+  item jsonb;
+  normalized_blocks jsonb := '[]'::jsonb;
+  normalized_items jsonb;
+begin
+  if jsonb_typeof(p_document) is distinct from 'object' or jsonb_typeof(p_document -> 'blocks') is distinct from 'array' then
+    return p_document;
+  end if;
+  for block in select value from jsonb_array_elements(p_document -> 'blocks') loop
+    if jsonb_typeof(block) = 'object' and jsonb_typeof(block -> 'id') = 'string' then
+      block := jsonb_set(block, '{id}', to_jsonb(btrim(block ->> 'id')));
+    end if;
+    if jsonb_typeof(block) = 'object' and block ->> 'type' = 'checklist' and jsonb_typeof(block -> 'items') = 'array' then
+      normalized_items := '[]'::jsonb;
+      for item in select value from jsonb_array_elements(block -> 'items') loop
+        if jsonb_typeof(item) = 'object' and jsonb_typeof(item -> 'id') = 'string' then
+          item := jsonb_set(item, '{id}', to_jsonb(btrim(item ->> 'id')));
+        end if;
+        normalized_items := normalized_items || jsonb_build_array(item);
+      end loop;
+      block := jsonb_set(block, '{items}', normalized_items);
+    end if;
+    normalized_blocks := normalized_blocks || jsonb_build_array(block);
+  end loop;
+  return jsonb_set(p_document, '{blocks}', normalized_blocks);
 end;
 $$;
 
@@ -124,6 +184,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  new.content_blocks := private.normalize_content_block_document_v1(new.content_blocks);
   if not private.content_block_document_v1_is_valid(new.content_blocks) then
     raise exception using errcode = '23514', message = 'invalid ContentBlockDocument V1';
   end if;

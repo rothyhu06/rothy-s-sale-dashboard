@@ -170,6 +170,68 @@ select throws_ok(
   '23514', null,
   'malformed ContentBlock envelopes are rejected by the database'
 );
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '缺少提示类型', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"c","type":"callout","text":"缺少 tone"}]}'::jsonb) $$,
+  '23514', null,
+  'callout requires a string enum tone'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '缺少列表类型', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"l","type":"list","items":["one"]}]}'::jsonb) $$,
+  '23514', null,
+  'list requires a string enum style'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '根额外字段', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[],"unknown":true}'::jsonb) $$,
+  '23514', null,
+  'unknown root keys are rejected'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '区块额外字段', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph","text":"x","unknown":true}]}'::jsonb) $$,
+  '23514', null,
+  'unknown block keys are rejected'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '嵌套额外字段', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"k","type":"checklist","items":[{"id":"i","text":"x","checked":true,"unknown":false}]}]}'::jsonb) $$,
+  '23514', null,
+  'unknown checklist item keys are rejected'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '标准化重复', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"p","type":"paragraph","text":"one"},{"id":" p ","type":"paragraph","text":"two"}]}'::jsonb) $$,
+  '23514', null,
+  'block ids that normalize to the same value are rejected'
+);
+select throws_ok(
+  $$ insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+     values ('51000000-0000-4000-8000-000000000001', '空白嵌套标识', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+       '{"schemaVersion":1,"blocks":[{"id":"k","type":"checklist","items":[{"id":" ","text":"x","checked":true}]}]}'::jsonb) $$,
+  '23514', null,
+  'blank-after-trim checklist item ids are rejected'
+);
+insert into public.knowledge (owner_id, title, knowledge_type, status, confidence, source_type, content_blocks)
+values ('51000000-0000-4000-8000-000000000001', '标识标准化', 'General', 'Draft', 'Hypothesis', 'Personal Note',
+  '{"schemaVersion":1,"blocks":[{"id":" p ","type":"checklist","items":[{"id":" i ","text":"x","checked":true}]}]}'::jsonb);
+select is(
+  (select content_blocks #>> '{blocks,0,id}' from public.knowledge where title = '标识标准化'),
+  'p',
+  'block ids are persisted in the same trimmed form produced by Zod'
+);
+select is(
+  (select content_blocks #>> '{blocks,0,items,0,id}' from public.knowledge where title = '标识标准化'),
+  'i',
+  'checklist item ids are persisted in the same trimmed form produced by Zod'
+);
 insert into public.learning (id, owner_id, title, learning_type, status)
 values (
   '54000000-0000-4000-8000-000000000003', '51000000-0000-4000-8000-000000000001', '学习根节点', 'Study', 'Completed'
