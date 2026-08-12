@@ -73,8 +73,8 @@ The journey runs axe after the library and mobile flows; no violations remained.
 - Textarea editing preserves the exact original structured ContentBlock V1 document, IDs,
   image/attachment reference types and captions when its body is untouched. A changed
   structured body is rejected unless the user explicitly confirms conversion after a warning
-  about Heading/List/Code/Callout/image/caption loss; selected attachment/image references
-  and their existing captions remain linked through a confirmed conversion.
+  that Heading/List/Code/Callout textual semantics will flatten into Paragraph blocks;
+  selected attachment/image reference blocks and their existing captions are preserved.
 
 ## Independent-review follow-up (2026-08-12)
 
