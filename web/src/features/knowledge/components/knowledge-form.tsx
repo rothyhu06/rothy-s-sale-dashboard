@@ -39,7 +39,7 @@ export function KnowledgeForm({ initial, support }: { initial?: Initial; support
       <div className="grid gap-5">
         <InputField id="knowledge-summary" label="Summary"><TextArea defaultValue={field("summary")} name="summary" /></InputField>
         <InputField id="knowledge-body" label="Knowledge body" description="Saved as ContentBlockDocument V1; plaintext is derived by the server."><TextArea defaultValue={originalBody} name="body" /></InputField>
-        {edit && hasStructuredBody ? <div className="rounded-md border border-warning p-4"><Checkbox label="将结构化正文转换为纯文本段落" name="confirmStructureConversion" /><p className="type-body-sm mb-0 mt-2 text-muted">仅在修改正文时勾选。转换可能丢失标题、列表、代码、提示框、图片类型与说明文字；附件仍会保持关联。</p></div> : null}
+        {edit && hasStructuredBody ? <div className="radius-card border border-border bg-paper p-4"><Checkbox label="将结构化正文转换为纯文本段落" name="confirmStructureConversion" /><p className="type-body-sm mb-0 mt-2 text-muted">仅在修改正文时勾选。转换会将标题、列表、代码与提示框等结构化文本块替换为纯文本段落；已选附件与图片引用块及其说明文字会保留。</p></div> : null}
         {[['technicalPrinciple','Technical principle'],['businessValue','Business value'],['educationScenario','Education scenario'],['customerPainPoint','Customer pain point'],['salesExpression','Sales expression'],['customerQuestions','Customer questions'],['competitiveNote','Competitive note']].map(([name,label]) => <InputField id={`knowledge-${name}`} key={name} label={label}><TextArea defaultValue={field(name)} name={name} /></InputField>)}
       </div>
       <Divider />

@@ -1,10 +1,14 @@
 # Knowledge & Learning Task 3 Report
 
-## Status and commit
+## Status and commits
 
-Implemented the protected Knowledge and Learning product slice. Planned commit message:
+Implemented and independently re-reviewed the protected Knowledge and Learning product slice.
+The delivery sequence is:
 
-`feat: deliver knowledge learning workflow`
+- `4d88a3958a73d4d3d12b97d9152148a2144ba335` — `feat: deliver knowledge learning workflow`
+- `718473daff6a69828c59f292c6f4401abf7f560d` — `docs: finalize knowledge learning task report`
+- `69c03ceffcbfe423bf57390b1d24fd7b161782eb` — `fix: harden knowledge learning workflows`
+- Final governance commit — `fix: align knowledge conversion warning with design system`
 
 ## Routes and operations
 
@@ -72,13 +76,6 @@ The journey runs axe after the library and mobile flows; no violations remained.
   about Heading/List/Code/Callout/image/caption loss; selected attachment/image references
   and their existing captions remain linked through a confirmed conversion.
 
-## Commit hash
-
-Implementation commit: `4d88a3958a73d4d3d12b97d9152148a2144ba335 feat: deliver knowledge learning workflow`.
-
-The report-finalization commit is necessarily separate because a Git commit cannot embed
-its own final hash without changing that hash.
-
 ## Independent-review follow-up (2026-08-12)
 
 All independent-review findings were addressed under strict RED/GREEN TDD:
@@ -123,4 +120,9 @@ Fresh follow-up evidence:
   completes the exact two-link mastery set with `Applied` and practice evidence, and creates an
   explicitly linked Review child/chain. Axe and mobile/tablet/desktop assertions also pass.
 
-Follow-up commit: pending at report-update time.
+The final governance pass replaces page-local warning radius/color utilities with frozen
+Design System classes (`radius-card`, `border-border`, and `bg-paper`) and corrects the copy:
+conversion replaces structured textual blocks with paragraphs while preserving selected
+attachment/image reference blocks and their captions. The final governance commit is identified
+above by its unique subject; its resulting hash is reported with the delivered verification
+evidence because a commit cannot contain its own stable hash.
