@@ -73,4 +73,7 @@ The journey runs axe after the library and mobile flows; no violations remained.
 
 ## Commit hash
 
-Task commit: `e5269bb5546d35e8d314abe8d4771fc2b031e830 feat: deliver knowledge learning workflow`.
+Implementation commit: `4d88a3958a73d4d3d12b97d9152148a2144ba335 feat: deliver knowledge learning workflow`.
+
+The report-finalization commit is necessarily separate because a Git commit cannot embed
+its own final hash without changing that hash.
