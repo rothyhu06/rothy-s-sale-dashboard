@@ -112,3 +112,45 @@ same-key CustomerKnowledgeLink evidence loss.
 - ESLint, TypeScript, and the production build passed.
 - Auth, cross-cutting, Knowledge/Learning, and Design System Playwright regressions
   passed 15 tests with local credentials injected only into the test process.
+
+---
+
+## Second review follow-up: catalog coverage and valid merge history
+
+### RED
+
+A focused `203_customer_merge_dependency_history.sql` pgTAP contract first failed
+because no explicit merge-dependency ignore registry existed. The same test creates a
+real owner-aware FK without editing the manifest, requires that preview fail closed,
+then proves a stable dependency registration plus concrete hook restores execution.
+It also reproduces an Unknown Contact whose `previous_contact_id` points to a Left
+record at the survivor Customer, ordinary-edit rejection, incomplete Active-only
+reparenting, undifferentiated preview planning, and NULL merge versions.
+
+### Corrected behavior
+
+- Manifest validation derives every `schema.table.column` dependency directly from
+  PostgreSQL owner-aware FKs to Customer or Contact. Detected dependencies must exactly
+  equal both the active manifest and active hook coverage; a new real FK alone blocks
+  preview. Historical/tombstone snapshot pointers are excluded only through a private
+  registry with a nonblank rationale.
+- Customer merge creates a private capability keyed by transaction, backend, owner,
+  survivor, and duplicate only while its security-definer hook reparents Contacts.
+  The history trigger accepts a newly same-Customer previous-employment relationship
+  only under that exact capability. Ordinary updates still reject it.
+- Customer merge reparents every non-Left Contact, including Unknown and Active, while
+  every Left Contact retains the duplicate Customer as immutable employment history.
+  `previous_contact_id` remains unchanged. Preview separately hashes/counts/identifies
+  reparented Contacts and preserved historical Contacts.
+- Execute explicitly rejects a NULL survivor or duplicate version before comparison
+  and uses null-safe version equality checks.
+
+### Fresh verification
+
+- Database reset passed; pgTAP passed 10 files / 393 assertions.
+- Database lint reported no schema errors.
+- Focused pgTAP passed 1 file / 16 assertions; full Vitest passed 43 files / 171 tests.
+- ESLint, TypeScript, and the production build passed.
+- Playwright passed all 15 tests with local Supabase credentials injected only into
+  the test process. Earlier E2E starts without those variables failed at environment
+  validation before tests ran; the complete credentialed rerun was green.

@@ -78,6 +78,7 @@ select throws_ok($$select * from public.preview_entity_merge(
 'P0001','merge reassignment manifest is incomplete','declared future dependency without a concrete hook fails preview closed');
 reset role; set local role postgres;
 update private.merge_hook_manifests set expected_dependencies=array_remove(expected_dependencies,'future_opportunities') where entity_type='Customer';
+drop table public.test_future_customer_dependents;
 
 insert into public.customers(id,owner_id,name,normalized_name,customer_type) values
 ('82000000-0000-4000-8000-000000000011','81000000-0000-4000-8000-000000000001','Chain A','ignored','University'),
