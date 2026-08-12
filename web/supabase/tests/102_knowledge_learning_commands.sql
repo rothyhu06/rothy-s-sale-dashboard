@@ -7,7 +7,7 @@ select no_plan();
 select has_function('public', 'create_knowledge', 'Knowledge create is a domain RPC');
 select has_function('public', 'update_knowledge', 'Knowledge update is a domain RPC');
 select has_function('public', 'create_learning', 'Learning create is a domain RPC');
-select has_function('public', 'complete_learning', 'Learning completion is a domain RPC');
+select has_function('public', 'complete_learning_exact', 'Learning completion is an exact-set domain RPC');
 select has_function('public', 'create_review_learning', 'Review creation is a distinct domain RPC');
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at)
@@ -231,7 +231,7 @@ select throws_ok(
     'Cross owner review', 'Planned', null, null, null, null, null, null, null,
     '62000000-0000-4000-8000-000000000008', 'Level2', null, '{}', '{}', '[]'::jsonb
   ) $$,
-  'P0001', 'parent learning not found',
+  'P0001', 'review parent must be completed',
   'Review command rejects another owner parent without leaking it'
 );
 reset role;
@@ -242,10 +242,11 @@ select is((select count(*) from public.command_receipts where client_request_id 
 reset role;
 set local role service_role;
 select throws_ok(
-  format($f$ select * from public.complete_learning(
+  format($f$ select * from public.complete_learning_exact(
     '61000000-0000-4000-8000-000000000001', '63000000-0000-4000-8000-000000000009', %L,
-    88, now(), 45, '掌握', null, 'Passed', '[]'::jsonb
-  ) $f$, (select id from created_learning)),
+    88, now(), 45, '掌握', null, 'Passed', %L::jsonb
+  ) $f$, (select id from created_learning),
+    jsonb_build_array(jsonb_build_object('knowledgeId', (select id from created_knowledge), 'masteryAfter', 'Explain'))::text),
   '40001', 'learning version conflict',
   'Learning completion enforces expectedVersion'
 );
@@ -257,7 +258,7 @@ select is((select count(*) from public.command_receipts where client_request_id 
 reset role;
 set local role service_role;
 create temporary table completed_learning as
-select * from public.complete_learning(
+select * from public.complete_learning_exact(
   '61000000-0000-4000-8000-000000000001', '63000000-0000-4000-8000-000000000010',
   (select id from created_learning), 1, now(), 45, '掌握', '完成演练', 'Passed',
   format('[{"knowledgeId":"%s","masteryAfter":"Explain"}]', (select id from created_knowledge))::jsonb

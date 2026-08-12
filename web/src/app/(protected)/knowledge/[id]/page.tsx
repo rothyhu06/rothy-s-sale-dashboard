@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { Badge, Divider, SectionHeader } from "@/components/design-system";
 import { getKnowledge } from "@/features/knowledge/queries";
+import { EntityNotFoundError } from "@/lib/queries/entity-not-found";
 
 export default async function KnowledgeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let item: Awaited<ReturnType<typeof getKnowledge>>;
-  try { item = await getKnowledge(id); } catch { notFound(); }
+  try { item = await getKnowledge(id); } catch (error) { if (error instanceof EntityNotFoundError) notFound(); throw error; }
   return <article className="grid gap-8">
     <SectionHeader level={1} title={item.title} description={item.summary ?? undefined} metadata={`Updated ${new Date(item.updatedAt).toLocaleDateString()}`} action={<span className="flex gap-4"><a className="type-control text-accent" href={`/knowledge/${item.id}/edit`}>Edit Knowledge</a><a className="type-control text-accent" href={`/learning/new?knowledgeId=${item.id}`}>Create Learning</a></span>} />
     <div className="flex flex-wrap gap-2"><Badge tone="accent">{item.status}</Badge><Badge>{item.confidence}</Badge><Badge>{item.knowledgeType}</Badge><Badge>{item.dataLevel}</Badge></div>

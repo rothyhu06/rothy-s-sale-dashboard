@@ -1,6 +1,7 @@
 "use server";
 
 import { searchKnowledge } from "./queries";
+import { safeActionError } from "@/lib/actions/safe-action-error";
 
 export type KnowledgeSearchState = { results?: Awaited<ReturnType<typeof searchKnowledge>>; message?: string };
 
@@ -10,6 +11,6 @@ export async function searchKnowledgeAction(_state: KnowledgeSearchState, data: 
   try {
     return { results: await searchKnowledge(query, 50) };
   } catch (error) {
-    return { message: error instanceof Error ? error.message : "Knowledge search could not be completed" };
+    return { message: safeActionError(error, { operation: "search-knowledge", fallback: "知识搜索未能完成，请稍后重试。" }) };
   }
 }

@@ -23,12 +23,31 @@ describe("Knowledge textarea ContentBlock adapter", () => {
     expect(composeKnowledgeDocument({ body: "Structured\n\nExact caption", originalBody: "Structured\n\nExact caption", originalDocument: original, attachmentIds: [attachmentId] })).toEqual(original);
   });
 
-  it("converts edited body text and retains selected references", () => {
+  it("refuses to flatten edited structured body text without explicit confirmation", () => {
+    expect(() => composeKnowledgeDocument({
+      body: "Changed",
+      originalBody: "Before",
+      originalDocument: { schemaVersion: 1, blocks: [{ id: "heading", type: "heading", level: 2, text: "Before" }] },
+      attachmentIds: [],
+      confirmStructureConversion: false,
+    })).toThrow("确认转换");
+  });
+
+  it("converts edited structured body only after confirmation and retains selected image metadata", () => {
     const attachmentId = crypto.randomUUID();
-    const result = composeKnowledgeDocument({ body: "Changed", originalBody: "Before", originalDocument: { schemaVersion: 1, blocks: [] }, attachmentIds: [attachmentId] });
+    const result = composeKnowledgeDocument({
+      body: "Changed",
+      originalBody: "Before\n\nExact caption",
+      originalDocument: { schemaVersion: 1, blocks: [
+        { id: "heading", type: "heading", level: 2, text: "Before" },
+        { id: "image-stable", type: "imageReference", attachmentId, caption: "Exact caption" },
+      ] },
+      attachmentIds: [attachmentId],
+      confirmStructureConversion: true,
+    });
     expect(result.blocks).toEqual([
       { id: "paragraph-1", type: "paragraph", text: "Changed" },
-      { id: "attachment-1", type: "attachmentReference", attachmentId },
+      { id: "image-stable", type: "imageReference", attachmentId, caption: "Exact caption" },
     ]);
   });
 });

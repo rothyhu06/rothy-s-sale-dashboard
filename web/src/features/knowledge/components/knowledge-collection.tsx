@@ -34,7 +34,7 @@ export function KnowledgeCollection({ knowledge }: { knowledge: Knowledge[] }) {
           <p className="type-body-sm mb-0 mt-3 text-muted">{item.summary || item.contentPlaintext || "Open this note to continue shaping it."}</p>
           <p className="type-metadata mb-0 mt-4 text-muted">{item.status} · {item.confidence}</p>
         </Card>
-      ))}</div> : <EmptyState title="No Knowledge matches these filters." description="Clear or adjust the filters to return to your library." action={<button className="type-control text-accent" onClick={() => { setSearch(""); setStatus("All"); }} type="button">Clear filters</button>} />}
+      ))}</div> : <EmptyState title="No Knowledge matches these filters." description="Clear or adjust the filters to return to your library." action={<Button onClick={() => { setSearch(""); setStatus("All"); }} size="large" type="button" variant="secondary">Clear filters</Button>} />}
     </div>
   );
 }

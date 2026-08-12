@@ -141,7 +141,7 @@ export function createLearningActions(dependencies: LearningDependencies) {
       const value = CompleteLearningInputSchema.parse(input);
       const version = z.number().int().positive().parse(expectedVersion);
       const context = await createCommandContext("CompleteLearning", clientRequestId, dependencies.authClient);
-      const { data, error } = await dependencies.serviceClient.rpc("complete_learning", {
+      const { data, error } = await dependencies.serviceClient.rpc("complete_learning_exact", {
         p_verified_user_id: context.user.sub,
         p_client_request_id: context.clientRequestId,
         p_learning_id: value.learningId,

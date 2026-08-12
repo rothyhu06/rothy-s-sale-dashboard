@@ -88,7 +88,7 @@ describe("Learning domain commands", () => {
       knowledgeMastery: [{ knowledgeId, masteryAfter: "Explain" }],
     }, 3, clientRequestId);
 
-    expect(client.rpc).toHaveBeenCalledWith("complete_learning", expect.objectContaining({
+    expect(client.rpc).toHaveBeenCalledWith("complete_learning_exact", expect.objectContaining({
       p_verified_user_id: ownerId,
       p_client_request_id: clientRequestId,
       p_expected_version: 3,

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { createServerClient } from "@/lib/supabase/server";
+import { throwDetailRead } from "@/lib/queries/entity-not-found";
 
 const continueLearningRowSchema = z.object({
   id: z.uuid(),
@@ -51,21 +52,27 @@ export function createLearningQueries(dependencies: { client: LearningQueryClien
       const { data, error } = await dependencies.client.from("learning")
         .select("id,title,learning_type,status,objective,started_at,completed_at,duration_minutes,takeaway,practice_result,learning_outcome,parent_learning_id,data_level,classification_reason,created_at,updated_at,version")
         .eq("id", id).single();
-      throwRead(error, "Learning could not be loaded");
+      throwDetailRead(error, "Learning", "Learning could not be loaded");
       const row = mapLearning(data as Record<string, unknown>);
-      const [linkResult, childResult, parentResult] = await Promise.all([
+      const [linkResult, childResult, parentResult, tagLinkResult, attachmentLinkResult] = await Promise.all([
         dependencies.client.from("learning_knowledge_links").select("knowledge_id,mastery_before,mastery_after").eq("learning_id", id),
         dependencies.client.from("learning").select("id,title,learning_type,status").eq("parent_learning_id", id).order("created_at", { ascending: true }),
         row.parentLearningId
           ? dependencies.client.from("learning").select("id,title,learning_type,status").eq("id", row.parentLearningId).single()
           : Promise.resolve({ data: null, error: null }),
+        dependencies.client.from("tag_links").select("tag_id").eq("learning_id", id),
+        dependencies.client.from("attachment_links").select("attachment_id").eq("learning_id", id),
       ]);
-      throwRead(linkResult.error ?? childResult.error ?? parentResult.error, "Learning chain could not be loaded");
+      throwRead(linkResult.error ?? childResult.error ?? parentResult.error ?? tagLinkResult.error ?? attachmentLinkResult.error, "Learning chain could not be loaded");
       const knowledgeIds = (linkResult.data ?? []).map((link: Record<string, unknown>) => String(link.knowledge_id));
-      const knowledgeResult = knowledgeIds.length
-        ? await dependencies.client.from("knowledge").select("id,title,status").in("id", knowledgeIds)
-        : { data: [], error: null };
-      throwRead(knowledgeResult.error, "Linked Knowledge could not be loaded");
+      const tagIds = (tagLinkResult.data ?? []).map((link: Record<string, unknown>) => String(link.tag_id));
+      const attachmentIds = (attachmentLinkResult.data ?? []).map((link: Record<string, unknown>) => String(link.attachment_id));
+      const [knowledgeResult, tagResult, attachmentResult] = await Promise.all([
+        knowledgeIds.length ? dependencies.client.from("knowledge").select("id,title,status").in("id", knowledgeIds) : Promise.resolve({ data: [], error: null }),
+        tagIds.length ? dependencies.client.from("tags").select("id,name,data_level").in("id", tagIds) : Promise.resolve({ data: [], error: null }),
+        attachmentIds.length ? dependencies.client.from("attachments").select("id,original_filename,file_category,storage_status,data_level").in("id", attachmentIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      throwRead(knowledgeResult.error ?? tagResult.error ?? attachmentResult.error, "Learning link targets could not be loaded");
       const knowledgeById = new Map((knowledgeResult.data ?? []).map((knowledge: Record<string, unknown>) => [knowledge.id, knowledge]));
       return {
         ...row,
@@ -73,7 +80,16 @@ export function createLearningQueries(dependencies: { client: LearningQueryClien
           knowledgeId: link.knowledge_id, masteryBefore: link.mastery_before, masteryAfter: link.mastery_after, knowledge: knowledgeById.get(link.knowledge_id),
         })),
         children: childResult.data ?? [], parent: parentResult.data,
+        tags: tagResult.data ?? [], attachments: attachmentResult.data ?? [],
       };
+    },
+    async getLearningSupport() {
+      const [tagResult, attachmentResult] = await Promise.all([
+        dependencies.client.from("tags").select("id,name,data_level").order("name", { ascending: true }),
+        dependencies.client.from("attachments").select("id,original_filename,file_category,storage_status,data_level").eq("storage_status", "Available").order("created_at", { ascending: false }),
+      ]);
+      throwRead(tagResult.error ?? attachmentResult.error, "Learning form options could not be loaded");
+      return { tags: tagResult.data ?? [], attachments: attachmentResult.data ?? [] };
     },
     async getContinueLearning(limit = 4) {
       const take = z.number().int().min(1).max(20).parse(limit);
@@ -105,4 +121,7 @@ export async function listLearning() {
 }
 export async function getLearning(learningId: string) {
   return createLearningQueries({ client: await createServerClient() }).getLearning(learningId);
+}
+export async function getLearningSupport() {
+  return createLearningQueries({ client: await createServerClient() }).getLearningSupport();
 }

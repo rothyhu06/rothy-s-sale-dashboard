@@ -213,13 +213,13 @@ select is((select operation_id from replayed_review), (select operation_id from 
 reset role;
 set local role service_role;
 create temporary table completed_learning_hardened as
-select * from public.complete_learning(
+select * from public.complete_learning_exact(
   '71000000-0000-4000-8000-000000000001', '73000000-0000-4000-8000-000000000008',
   (select id from hardened_learning), 1, now(), 30, 'Takeaway', null, 'Passed',
   '[{"knowledgeId":"72000000-0000-4000-8000-000000000010","masteryAfter":"Explain"}]'::jsonb
 );
 create temporary table replayed_complete_hardened as
-select * from public.complete_learning(
+select * from public.complete_learning_exact(
   '71000000-0000-4000-8000-000000000001', '73000000-0000-4000-8000-000000000008',
   (select id from hardened_learning), 999, now(), 1, 'ignored', null, 'Blocked', '[]'::jsonb
 );

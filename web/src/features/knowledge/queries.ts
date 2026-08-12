@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { createServerClient } from "@/lib/supabase/server";
+import { throwDetailRead } from "@/lib/queries/entity-not-found";
 
 const searchRowSchema = z.object({
   source_id: z.uuid(),
@@ -59,7 +60,7 @@ export function createKnowledgeQueries(dependencies: { client: SearchClient }) {
       const { data, error } = await dependencies.client.from("knowledge")
         .select("id,title,knowledge_type,status,confidence,source_type,source_name,source_url,summary,technical_principle,business_value,education_scenario,customer_pain_point,sales_expression,customer_questions,competitive_note,content_blocks,content_plaintext,data_level,classification_reason,created_at,updated_at,version")
         .eq("id", id).single();
-      throwRead(error, "Knowledge could not be loaded");
+      throwDetailRead(error, "Knowledge", "Knowledge could not be loaded");
       const [tagLinkResult, attachmentLinkResult, relationResult] = await Promise.all([
         dependencies.client.from("tag_links").select("tag_id").eq("knowledge_id", id),
         dependencies.client.from("attachment_links").select("attachment_id").eq("knowledge_id", id),

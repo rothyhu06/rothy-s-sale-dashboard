@@ -116,9 +116,10 @@ select is((select count(*) from public.audit_logs where action = 'Classification
 
 reset role;
 set local role service_role;
-create temporary table parent_complete as select * from public.complete_learning(
+create temporary table parent_complete as select * from public.complete_learning_exact(
   '81000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000003',
-  '84000000-0000-4000-8000-000000000003', 2, now(), 10, 'done', null, 'Passed', '[]'
+  '84000000-0000-4000-8000-000000000003', 2, now(), 10, 'done', null, 'Passed',
+  '[{"knowledgeId":"83000000-0000-4000-8000-000000000007","masteryAfter":"Apply"}]'
 );
 reset role;
 set local role postgres;
@@ -182,9 +183,10 @@ select is((select count(*) from public.attachment_links where knowledge_id = '83
 
 reset role;
 set local role service_role;
-create temporary table historical_complete as select * from public.complete_learning(
+create temporary table historical_complete as select * from public.complete_learning_exact(
   '81000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000007',
-  '84000000-0000-4000-8000-000000000006', 1, now(), 10, 'historical complete', null, 'Passed', '[]'
+  '84000000-0000-4000-8000-000000000006', 1, now(), 10, 'historical complete', null, 'Passed',
+  '[{"knowledgeId":"83000000-0000-4000-8000-000000000005","masteryAfter":"Apply"}]'
 );
 reset role;
 set local role postgres;

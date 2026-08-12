@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createKnowledge, updateKnowledge, VersionConflictError } from "./actions";
 import { composeKnowledgeDocument } from "./form-adapter";
+import { safeActionError } from "@/lib/actions/safe-action-error";
 
 export type KnowledgeFormState = { message?: string; conflict?: boolean };
 const text = (data: FormData, name: string) => String(data.get(name) ?? "").trim();
@@ -16,6 +17,7 @@ function value(data: FormData) {
   const originalDocument = text(data, "originalContentBlocks");
   const document = composeKnowledgeDocument({
     body, originalBody, originalDocument: originalDocument ? JSON.parse(originalDocument) : undefined, attachmentIds,
+    confirmStructureConversion: data.get("confirmStructureConversion") === "on",
   });
   return {
     title: text(data, "title"), knowledgeType: text(data, "knowledgeType"), status: text(data, "status"),
@@ -34,7 +36,7 @@ export async function submitKnowledge(_state: KnowledgeFormState, data: FormData
     redirect(`/knowledge/${result.id}`);
   } catch (error) {
     if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
-    return { message: error instanceof Error ? error.message : "Knowledge could not be created" };
+    return { message: safeActionError(error, { operation: "create-knowledge", fallback: "知识未能创建，请稍后重试。" }) };
   }
 }
 
@@ -46,6 +48,6 @@ export async function saveKnowledge(_state: KnowledgeFormState, data: FormData):
   } catch (error) {
     if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
     if (error instanceof VersionConflictError) return { conflict: true, message: "This Knowledge changed in another session. Your edits are preserved; reload the latest version before saving again." };
-    return { message: error instanceof Error ? error.message : "Knowledge could not be saved" };
+    return { message: safeActionError(error, { operation: "save-knowledge", fallback: "知识未能保存，请稍后重试。" }) };
   }
 }
