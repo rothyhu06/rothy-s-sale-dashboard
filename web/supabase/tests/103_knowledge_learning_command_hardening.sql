@@ -253,11 +253,11 @@ set local role postgres;
 insert into public.learning (
   id, owner_id, title, learning_type, status, objective, parent_learning_id, updated_at, deleted_at, deleted_by
 ) values
-  ('74000000-0000-4000-8000-000000000001', '71000000-0000-4000-8000-000000000001', 'Completed parent', 'Study', 'Completed', null, null, '2026-08-04T08:00:00Z', null, null),
-  ('74000000-0000-4000-8000-000000000010', '71000000-0000-4000-8000-000000000001', 'Planned newest', 'Study', 'Planned', null, null, '2026-08-04T12:00:00Z', null, null),
-  ('74000000-0000-4000-8000-000000000020', '71000000-0000-4000-8000-000000000001', 'Progress tie low', 'Study', 'In Progress', null, null, '2026-08-04T10:00:00Z', null, null),
-  ('74000000-0000-4000-8000-000000000021', '71000000-0000-4000-8000-000000000001', 'Progress tie high review', 'Review', 'In Progress', null, '74000000-0000-4000-8000-000000000001', '2026-08-04T10:00:00Z', null, null),
-  ('74000000-0000-4000-8000-000000000030', '71000000-0000-4000-8000-000000000001', 'Deleted progress', 'Study', 'In Progress', null, null, '2026-08-04T13:00:00Z', now(), '71000000-0000-4000-8000-000000000001');
+  ('74000000-0000-4000-8000-000000000001', '71000000-0000-4000-8000-000000000001', 'Completed parent', 'Study', 'Completed', null, null, now() - interval '3 hours', null, null),
+  ('74000000-0000-4000-8000-000000000010', '71000000-0000-4000-8000-000000000001', 'Planned newest', 'Study', 'Planned', null, null, now() - interval '1 hour', null, null),
+  ('74000000-0000-4000-8000-000000000020', '71000000-0000-4000-8000-000000000001', 'Progress tie low', 'Study', 'In Progress', null, null, now() + interval '2 hours', null, null),
+  ('74000000-0000-4000-8000-000000000021', '71000000-0000-4000-8000-000000000001', 'Progress tie high review', 'Review', 'In Progress', null, '74000000-0000-4000-8000-000000000001', now() + interval '2 hours', null, null),
+  ('74000000-0000-4000-8000-000000000030', '71000000-0000-4000-8000-000000000001', 'Deleted progress', 'Study', 'In Progress', null, null, now() + interval '3 hours', now(), '71000000-0000-4000-8000-000000000001');
 reset role;
 select set_config('request.jwt.claims', '{"sub":"71000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
 set local role authenticated;
