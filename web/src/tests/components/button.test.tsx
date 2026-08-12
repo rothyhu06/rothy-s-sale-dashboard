@@ -26,4 +26,16 @@ describe("Button", () => {
     rerender(<Button size="large">Open</Button>);
     expect(screen.getByRole("button")).toHaveAttribute("data-size", "large");
   });
+
+  it("uses canvas foreground against the primary ink surface in every theme", () => {
+    render(<Button>Continue</Button>);
+    expect(screen.getByRole("button")).toHaveClass("!text-[var(--ds-color-canvas)]");
+  });
+
+  it("owns semantic foreground colors instead of inheriting from action containers", () => {
+    const { rerender } = render(<Button variant="secondary">Search</Button>);
+    expect(screen.getByRole("button")).toHaveClass("!text-[var(--ds-color-ink)]");
+    rerender(<Button variant="destructive">Delete</Button>);
+    expect(screen.getByRole("button")).toHaveClass("!text-[var(--ds-color-danger-ink)]");
+  });
 });

@@ -10,6 +10,11 @@ describe("SectionHeader", () => {
     expect(screen.getByRole("link", { name: "View all" })).toBeInTheDocument();
     expect(screen.getByText("20 July")).toBeInTheDocument();
   });
+
+  it("can provide the page-level heading without changing the visual hierarchy", () => {
+    render(<SectionHeader level={1} title="Knowledge Library" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Knowledge Library" })).toHaveClass("type-heading-2");
+  });
 });
 
 describe("Divider", () => {
