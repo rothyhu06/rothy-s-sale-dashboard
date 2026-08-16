@@ -4,17 +4,20 @@
 
 ## Online Experience
 
-### [Open CSIG Sales OS →](https://rothy-s-sale-dashboard.vercel.app/design-system)
+### [Open CSIG Sales OS →](https://rothy-s-sale-dashboard.vercel.app)
 
-The current release is the **Design System V2.0 interactive gallery**. It demonstrates the shared visual foundation for every future page, including:
+[Public Design System sample gallery →](https://rothy-s-sale-dashboard.vercel.app/design-system)
 
-- Day, Night, and automatic time-based themes
-- User wallpaper controls with opacity, blur, and brightness settings
-- Editorial navigation, cards, timeline, progress, forms, empty states, and contextual panels
-- Responsive desktop, tablet, and mobile layouts
-- Reduced-motion and accessibility behavior
+The current release is a private single-user MVP. It includes:
 
-> All content in the gallery is fictional sample data. It contains no real customer, contact, meeting, opportunity, expense, or other sensitive business information.
+- Adaptive Sales Command Center, Global Search and Memory Timeline
+- Knowledge Hub, Learning chain and evidence-linked Insights
+- Customer, Contact, Opportunity, Interaction and Task workflows
+- Daily Report, Weekly Review, private Attachments and Tags
+- Supabase SSR Auth, forced RLS, owner isolation, AuditLog and idempotent commands
+- Day/Night themes, responsive layouts and the shared Design System V2.0
+
+> `/design-system` is public and contains fictional sample data only. Every business route requires the pre-created private account.
 
 ## Product Direction
 
@@ -40,7 +43,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000/design-system`.
+Open `http://localhost:3000`. Configure the Supabase variables from `web/.env.example` first.
 
 ## Quality Checks
 
