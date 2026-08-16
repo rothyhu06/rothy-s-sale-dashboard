@@ -1,8 +1,10 @@
-# CSIG Sales OS — Web Foundation
+# CSIG Sales OS
 
-This directory contains the reusable Design System foundation for the private CSIG Sales OS workspace. It intentionally contains no production CRM, customer, opportunity, report, database, or AI workflow.
+Private, single-user Solution Sales workspace for learning, customer management, opportunity execution, interactions, tasks, insight formation and daily reflection.
 
-**Online experience:** [https://rothy-s-sale-dashboard.vercel.app/design-system](https://rothy-s-sale-dashboard.vercel.app/design-system)
+**Online experience:** [https://rothy-s-sale-dashboard.vercel.app](https://rothy-s-sale-dashboard.vercel.app)
+
+**Public sample-only Design System:** [https://rothy-s-sale-dashboard.vercel.app/design-system](https://rothy-s-sale-dashboard.vercel.app/design-system)
 
 ## Requirements
 
@@ -25,7 +27,21 @@ pnpm test:e2e
 pnpm verify
 ```
 
-Open `http://localhost:3000/design-system` during development. The root route redirects to this internal gallery until the real Home page is designed and implemented.
+Open `http://localhost:3000`. Business routes require the single Supabase account. `/design-system` remains public and uses fictional sample data only.
+
+## Implemented MVP
+
+- Adaptive Sales Command Center
+- Global Search and unified Memory Timeline
+- Knowledge Hub and Learning chain
+- Customer, Contact and Opportunity Pipeline
+- Interaction facts and Task commitments
+- Evidence-linked Insights
+- Daily Report and derived Weekly Review
+- Private Attachment upload/download and reusable Tags
+- Supabase SSR Auth, forced RLS, owner-aware foreign keys, AuditLog, idempotent commands, optimistic concurrency and soft delete
+
+Operations: [runbook](docs/operations/runbook.md) · [security checklist](docs/operations/security-checklist.md)
 
 ## Source of Truth
 

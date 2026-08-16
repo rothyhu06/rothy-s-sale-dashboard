@@ -1,0 +1,1 @@
+import{Divider,SectionHeader}from"@/components/design-system";import{DailyReportForm}from"@/features/reports/components/daily-report-form";export default function Page(){return <div className="grid gap-8"><SectionHeader level={1} title="Daily Report" description="Focus, reflection, risks and tomorrow’s plan."/><Divider/><DailyReportForm/></div>}

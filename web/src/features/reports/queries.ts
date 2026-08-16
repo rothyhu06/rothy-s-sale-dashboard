@@ -1,0 +1,1 @@
+import"server-only";import{createServerClient}from"@/lib/supabase/server";export async function listReports(){const c=await createServerClient();const{data,error}=await c.from("reports").select("*").order("created_at",{ascending:false});if(error)throw new Error("Reports could not be loaded",{cause:error});return data??[]}

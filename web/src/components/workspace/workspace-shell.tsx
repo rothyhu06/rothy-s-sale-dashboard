@@ -9,8 +9,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     <>
       <Navigation
         groups={[
-          { label: "Workspace", items: [{label:"Today",href:"/",active:pathname==="/"},{label:"Customers",href:"/customers",active:pathname.startsWith("/customers")},{label:"Contacts",href:"/contacts",active:pathname.startsWith("/contacts")},{label:"Opportunities",href:"/opportunities",active:pathname.startsWith("/opportunities")}] },
-          { label: "Knowledge", items: [{ label: "Knowledge Hub", href: "/knowledge", active: pathname.startsWith("/knowledge") }, { label: "Learning", href: "/learning", active: pathname.startsWith("/learning") }] },
+          { label: "Workspace", items: [{label:"Today",href:"/",active:pathname==="/"},{label:"Customers",href:"/customers",active:pathname.startsWith("/customers")},{label:"Contacts",href:"/contacts",active:pathname.startsWith("/contacts")},{label:"Opportunities",href:"/opportunities",active:pathname.startsWith("/opportunities")},{label:"Interactions",href:"/interactions",active:pathname.startsWith("/interactions")},{label:"Tasks",href:"/tasks",active:pathname.startsWith("/tasks")}] },
+          { label: "Knowledge", items: [{ label: "Knowledge Hub", href: "/knowledge", active: pathname.startsWith("/knowledge") }, { label: "Learning", href: "/learning", active: pathname.startsWith("/learning") },{label:"Insights",href:"/insights",active:pathname.startsWith("/insights")}] },
+          { label: "Review", items: [{label:"Reports",href:"/reports",active:pathname.startsWith("/reports")},{label:"Timeline",href:"/timeline",active:pathname.startsWith("/timeline")},{label:"Search",href:"/search",active:pathname.startsWith("/search")},{label:"Files & Tags",href:"/files",active:pathname.startsWith("/files")}] },
         ]}
         profile={{ name: "Private workspace", detail: "Your learning journal" }}
       />
