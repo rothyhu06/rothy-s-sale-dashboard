@@ -1,0 +1,6 @@
+"use server";
+import { redirect } from "next/navigation";
+import { createContact } from "./actions";
+import { safeActionError } from "@/lib/actions/safe-action-error";
+export type ContactFormState={message?:string}; const text=(d:FormData,n:string)=>String(d.get(n)??"").trim(); const nullable=(d:FormData,n:string)=>text(d,n)||null;
+export async function submitContact(customerId:string,_:ContactFormState,data:FormData):Promise<ContactFormState>{try{const r=await createContact({customerId,fullName:text(data,"fullName"),preferredName:nullable(data,"preferredName"),department:nullable(data,"department"),position:nullable(data,"position"),email:nullable(data,"email"),mobile:nullable(data,"mobile"),wechat:nullable(data,"wechat"),preferredChannel:nullable(data,"preferredChannel"),preferredContactTime:"No Preference",communicationPreferences:[],employmentStatus:"Active",relationshipStatus:"Unknown",organizationInfluence:"Unknown",dataLevel:"Level3"},text(data,"clientRequestId"));redirect(`/contacts/${r.id}`)}catch(error){if((error as {digest?:string}).digest?.startsWith("NEXT_REDIRECT"))throw error;return{message:safeActionError(error,{operation:"create-contact",fallback:"联系人未能创建，请检查输入后重试。"})}}}
