@@ -4,6 +4,10 @@ import { publicEnv } from "@/lib/env/public";
 
 const publicRoutes = new Set(["/design-system", "/login"]);
 
+export function isDatabaseIndependentPublicRoute(pathname: string) {
+  return pathname === "/design-system";
+}
+
 function redirectWithCookies(
   request: NextRequest,
   pathname: string,
@@ -22,6 +26,14 @@ function redirectWithCookies(
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
+
+  // The public Design System is intentionally sample-only and must remain
+  // available even before a production Supabase project is configured.
+  if (isDatabaseIndependentPublicRoute(pathname)) {
+    return response;
+  }
+
   const { supabaseUrl, supabaseAnonKey } = publicEnv();
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -43,8 +55,6 @@ export async function proxy(request: NextRequest) {
 
   const { data } = await supabase.auth.getClaims();
   const isAuthenticated = Boolean(data?.claims);
-  const pathname = request.nextUrl.pathname;
-
   if (!isAuthenticated && !publicRoutes.has(pathname)) {
     return redirectWithCookies(request, "/login", response);
   }
